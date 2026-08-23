@@ -21,3 +21,8 @@ venv/
 .vscode/
 .idea/
 *.swp
+
+# Runtime logs
+logs/
+serve.log
+mock.log
