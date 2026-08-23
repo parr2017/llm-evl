@@ -546,9 +546,9 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
                 </el-select>
               </div>
               <div class="compare-legend">
-                <span><span <span class="base-label">基准</span>{{ runMetaLabel(compareData.base.run_id) }}</span>
-                <span class="legend-sep"></span>
-                <span><span <span class="base-label">对比</span>{{ runMetaLabel(compareData.other.run_id) }}</span>
+                <span><span class="base-label">基准</span>{{ runMetaLabel(compareData.base.run_id) }}</span>
+                <span class="legend-sep"></span>
+                <span><span class="base-label">对比</span>{{ runMetaLabel(compareData.other.run_id) }}</span>
                 <span class="tertiary" style="font-size:11px;margin-left:12px">(数值优=绿, 劣=红)</span>
               </div>
               <el-table :data="compareRowsFiltered" border size="small" style="width:100%"
@@ -562,12 +562,13 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
   <span class="pair mono" :class="verdictClass(row.metrics[m.key].verdict)">
     {{ m.fmtVal(row.metrics[m.key].base) }}<span class="arrow">→</span>{{ m.fmtVal(row.metrics[m.key].other) }}
   </span>
-  <el-tag class="diff-tag" size="small" :type="verdictTagType(row.metrics[m.key].verdict)">
-    {{ pctText(row.metrics[m.key].pct) }}
-  </el-tag>
-</div>
-                </el-table-column>
-              </el-table>
+  <el-tag class="diff-tag" size="small" :type="verdictTagType(row.metrics[m.key].verdict)">
+    {{ pctText(row.metrics[m.key].pct) }}
+  </el-tag>
+</div>
+                  </template>
+                </el-table-column>
+              </el-table>
             </div>
           </template>
           <div v-else-if="compareData" class="empty">两次运行没有可对齐的单元(target × prompt × 并发 均不一致)。</div>
