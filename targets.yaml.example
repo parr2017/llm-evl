@@ -1,0 +1,26 @@
+# llm-evl target configuration
+# Copy to targets.yaml and edit. api_key may be plaintext (convenience) or
+# reference an environment variable via api_key_env (preferred).
+# WARNING: targets.yaml is git-ignored because it may contain plaintext keys.
+
+targets:
+  - name: gpt-4o
+    base_url: https://api.openai.com/v1
+    model: gpt-4o
+    api_key_env: OPENAI_API_KEY
+    # api_key: sk-...                 # uncomment to use plaintext
+
+  - name: deepseek
+    base_url: https://api.deepseek.com/v1
+    model: deepseek-chat
+    api_key_env: DEEPSEEK_API_KEY
+
+  - name: local-vllm
+    base_url: http://localhost:8000/v1
+    model: meta-llama/Llama-3.1-8B-Instruct
+    api_key: token-ignored             # vLLM accepts any non-empty string
+
+# Per-target overrides (optional). Applied on top of run defaults.
+# overrides:
+#   gpt-4o:
+#     temperature: 0.0

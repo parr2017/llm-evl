@@ -1,0 +1,1336 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llm-evl · LLM 性能基准</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.6/dist/index.css" />
+<style>
+:root {
+  --color-primary:        #1e3a8a;
+  --color-primary-hover:  #2563eb;
+  --color-primary-light:  #eef2ff;
+  --color-accent:         #3b82f6;
+  --color-bg:             #f6f8fa;
+  --color-surface:        #ffffff;
+  --color-border:         #e6edf4;
+  --color-border-light:   #f0f4f8;
+  --color-sidebar:        #0f172a;
+  --color-text:           #0f172a;
+  --color-text-secondary: #64748b;
+  --color-text-tertiary:  #94a3b8;
+  --color-danger:         #ef4444;
+  --color-success:        #10b981;
+  --color-warning:        #f59e0b;
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --space-xs: 4px; --space-sm: 8px; --space-md: 16px; --space-lg: 24px; --space-xl: 32px;
+  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
+  --shadow-md: 0 4px 16px rgba(0,0,0,0.06);
+  --font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', 'PingFang SC', 'Microsoft YaHei', sans-serif;
+}
+* { box-sizing: border-box; }
+html, body, #app { height: 100%; margin: 0; padding: 0; overflow: hidden; }
+body { background: var(--color-bg); font-family: var(--font-family); color: var(--color-text); font-size: 14px; }
+.layout { display: flex; height: 100%; }
+.sidebar { flex: 0 0 200px; width: 200px; background: var(--color-sidebar); color: #fff; display: flex; flex-direction: column; }
+.sidebar .brand { padding: var(--space-lg) var(--space-lg) var(--space-md); font-weight: 600; font-size: 16px; }
+.sidebar .brand .sub { display: block; font-size: 11px; font-weight: 400; color: rgba(255,255,255,.5); margin-top: 2px; }
+.sidebar .menu { flex: 1; border: none; background: transparent; }
+.sidebar .menu .el-menu-item { height: 40px; line-height: 40px; color: rgba(255,255,255,.55); font-size: 13px; }
+.sidebar .menu .el-menu-item:hover { background: rgba(255,255,255,.06); color: #fff; }
+.sidebar .menu .el-menu-item.is-active { background: rgba(255,255,255,.10); color: #fff; }
+.main { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; overflow: hidden; }
+.topbar { flex: 0 0 48px; height: 48px; background: var(--color-surface); border-bottom: 1px solid var(--color-border-light); display: flex; align-items: center; padding: 0 var(--space-lg); font-weight: 500; }
+.content { flex: 1 1 auto; min-width: 0; overflow: auto; padding: var(--space-md); }
+.section-title { font-size: 13px; color: var(--color-text-tertiary); font-weight: 500; margin: 0 0 var(--space-md); }
+.card { background: var(--color-surface); border-radius: var(--radius-md); padding: var(--space-md); box-shadow: var(--shadow-sm); margin-bottom: var(--space-md); }
+.card + .card { margin-top: var(--space-md); }
+.page-head { display: flex; align-items: flex-start; justify-content: space-between; gap: var(--space-md); margin-bottom: var(--space-md); flex-wrap: wrap; }
+.page-head-text { min-width: 0; }
+.page-head-title { font-size: 15px; font-weight: 600; color: var(--color-text); }
+.page-head-desc { font-size: 12px; color: var(--color-text-tertiary); margin-top: 4px; line-height: 1.5; max-width: 580px; }
+.page-head-actions { display: flex; gap: var(--space-sm); flex-shrink: 0; align-items: center; }
+.card-footer { display: flex; align-items: center; gap: var(--space-sm); margin-top: var(--space-md); padding-top: var(--space-md); border-top: 1px solid var(--color-border-light); flex-wrap: wrap; }
+.hint { font-size: 11px; color: var(--color-text-tertiary); line-height: 1.4; }
+/* Dialog: never overflow the viewport */
+.el-dialog { max-width: calc(100vw - 32px); }
+.el-dialog .el-form-item { margin-bottom: 18px; }
+.toolbar { display: flex; align-items: center; gap: var(--space-sm); margin-bottom: var(--space-md); flex-wrap: wrap; }
+.spacer { flex: 1; }
+.mono { font-variant-numeric: tabular-nums; font-family: ui-monospace, 'SF Mono', Menlo, monospace; }
+.muted { color: var(--color-text-secondary); }
+.tertiary { color: var(--color-text-tertiary); }
+.form-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: var(--space-md); }
+.field { display: flex; flex-direction: column; gap: 4px; }
+.field .l { font-size: 12px; color: var(--color-text-tertiary); font-weight: 500; }
+.field .hint { font-size: 11px; color: var(--color-text-tertiary); }
+.chart { width: 100%; height: 320px; }
+.el-table th.el-table__cell { background: #fafbfc; color: var(--color-text-tertiary); font-weight: 500; }
+.el-table .cell { font-size: 13px; }
+.empty { padding: var(--space-xl); text-align: center; color: var(--color-text-tertiary); }
+.pill { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 11px; background: var(--color-primary-light); color: var(--color-primary); }
+.kv { display: flex; gap: var(--space-sm); font-size: 12px; color: var(--color-text-secondary); flex-wrap: wrap; }
+.running-row { background: #fffbeb; }
+.current-card { border: 1px solid var(--color-warning); background: #fffbeb; border-radius: var(--radius-md); padding: var(--space-md); margin-bottom: var(--space-md); }
+.metric-help p { margin: 0 0 8px; font-size: 13px; line-height: 1.6; color: var(--color-text-secondary); }
+.metric-help b { color: var(--color-text); font-weight: 600; }
+.metric-help .tertiary { color: var(--color-text-tertiary); font-size: 12px; }
+.test-result { margin-top: 8px; padding: 10px 12px; border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5; }
+.test-result.ok { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.25); color: #065f46; }
+.test-result.fail { background: rgba(239,68,68,.08); border: 1px solid rgba(239,68,68,.25); color: #991b1b; }
+.compare-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: var(--space-md); }
+.compare-card { background: var(--color-bg); border-radius: var(--radius-sm); padding: var(--space-md); border: 1px solid var(--color-border-light); }
+.compare-card-label { font-size: 12px; color: var(--color-text-tertiary); font-weight: 500; }
+.compare-card-winner { font-size: 18px; font-weight: 700; color: var(--color-primary); margin-top: 4px; }
+.compare-card-value { font-size: 15px; font-weight: 600; margin-top: 2px; }
+.compare-card-value.good { color: var(--color-success); }
+.compare-card-value.bad { color: var(--color-danger); }
+.compare-card-desc { font-size: 11px; color: var(--color-text-tertiary); margin-top: 4px; }
+.conv-view { padding: var(--space-md); background: var(--color-bg); border-radius: var(--radius-sm); }
+.conv-section { margin-bottom: var(--space-md); }
+.conv-label { font-size: 12px; font-weight: 600; color: var(--color-primary); margin-bottom: 6px; }
+.conv-text { font-size: 13px; line-height: 1.6; color: var(--color-text); white-space: pre-wrap; word-break: break-word; background: var(--color-surface); padding: var(--space-sm) var(--space-md); border-radius: var(--radius-sm); border: 1px solid var(--color-border-light); max-height: 300px; overflow-y: auto; }
+.conv-meta { display: flex; gap: var(--space-md); font-size: 12px; color: var(--color-text-secondary); flex-wrap: wrap; padding-top: var(--space-sm); border-top: 1px solid var(--color-border-light); }
+/* Run compare page */
+.diff-val { display: flex; flex-direction: column; gap: 2px; line-height: 1.35; }
+.diff-val .pair { font-variant-numeric: tabular-nums; white-space: nowrap; }
+.diff-val .pair .arrow { color: var(--color-text-tertiary); margin: 0 3px; }
+.diff-tag { margin-top: 1px; }
+.side-label { display: inline-block; min-width: 30px; font-size: 11px; color: var(--color-text-tertiary); }
+.compare-legend { display: flex; align-items: center; gap: var(--space-md); font-size: 13px; margin-top: 8px; padding-top: var(--space-sm); border-top: 1px solid var(--color-border-light); flex-wrap: wrap; }
+.compare-legend .side-label { color: var(--color-primary); font-weight: 600; }
+.legend-sep { width: 1px; height: 14px; background: var(--color-border); }
+.v-better { color: var(--color-success); }
+.v-worse { color: var(--color-danger); }
+.v-same { color: var(--color-text-tertiary); }
+</style>
+</head>
+<body>
+<div id="app">
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="brand">llm-evl<span class="sub">LLM 性能基准测试</span></div>
+      <el-menu :default-active="page" class="menu" @select="onPage">
+        <el-menu-item index="config">目标配置</el-menu-item>
+        <el-menu-item index="prompts">Prompt 管理</el-menu-item>
+        <el-menu-item index="run">运行</el-menu-item>
+        <el-menu-item index="results">结果</el-menu-item>
+        <el-menu-item index="history">历史</el-menu-item>
+        <el-menu-item index="compare">运行对比</el-menu-item>
+      </el-menu>
+    </aside>
+    <section class="main">
+      <header class="topbar">{{ title }}</header>
+      <div class="content">
+
+        <!-- ============ 目标配置 ============ -->
+        <div v-show="page==='config'">
+          <div class="card">
+            <div class="page-head">
+              <div class="page-head-text">
+                <div class="page-head-title">目标配置</div>
+                <div class="page-head-desc">管理要基准测试的 LLM 端点。密钥可明文存储(已自动排除 git 提交),也可用环境变量引用。</div>
+              </div>
+              <div class="page-head-actions">
+                <el-button type="primary" plain size="small" @click="refreshTargets">重新加载</el-button>
+                <el-button type="primary" size="small" @click="openTargetDialog(null)">新增目标</el-button>
+              </div>
+            </div>
+            <el-table :data="targets" border style="width:100%" size="small"
+              empty-text="暂无目标,点击右上角「新增目标」添加">
+              <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
+              <el-table-column prop="base_url" label="接口地址" min-width="200" show-overflow-tooltip />
+              <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
+              <el-table-column label="密钥" width="110">
+                <template #default="{ row }">
+                  <el-tag size="small" :type="row.has_api_key ? 'warning' : (row.api_key_env ? 'info' : 'danger')">
+                    {{ row.has_api_key ? '明文' : (row.api_key_env ? 'env:' + row.api_key_env : '无') }}
+                  </el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="190" fixed="right">
+                <template #default="{ row, $index }">
+                  <el-button type="primary" plain size="small" @click="openTargetDialog(row)">编辑</el-button>
+                  <el-button type="success" plain size="small" :loading="testingId===row.name" @click="testTargetRow(row)">测试</el-button>
+                  <el-button type="danger" plain size="small" @click="removeTarget($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="card-footer">
+              <span class="tertiary">配置文件:targets.yaml · 明文密钥已自动排除 git 提交</span>
+              <div class="spacer"></div>
+              <el-tag v-if="targetsDirty" type="warning" size="small" effect="dark" style="margin-right:8px">有未保存的修改</el-tag>
+              <el-button type="primary" @click="saveTargets">保存配置</el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ Prompt 管理 ============ -->
+        <div v-show="page==='prompts'">
+          <div class="card">
+            <div class="page-head">
+              <div class="page-head-text">
+                <div class="page-head-title">Prompt 管理</div>
+                <div class="page-head-desc">内置 Prompt 只读,自定义 Prompt 可编辑。配置「期望关键词」和「最少输出 token」后会启用质量评分:关键词命中率 × 输出长度达标率。</div>
+              </div>
+              <div class="page-head-actions">
+                <el-button type="primary" plain size="small" @click="refreshPrompts">重新加载</el-button>
+                <el-button type="primary" size="small" @click="openPromptDialog(null)">新增 Prompt</el-button>
+              </div>
+            </div>
+            <el-table :data="prompts" border style="width:100%" size="small"
+              empty-text="暂无自定义 Prompt,点击右上角添加">
+              <el-table-column prop="label" label="名称" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="bucket" label="长度档" width="80">
+                <template #default="{row}">{{ bucketLabel(row.bucket) }}</template>
+              </el-table-column>
+              <el-table-column prop="text" label="内容" min-width="240" show-overflow-tooltip />
+              <el-table-column label="期望关键词" min-width="140">
+                <template #default="{row}">
+                  <span v-if="!row.expected_keywords.length" class="tertiary">未设置</span>
+                  <el-tag v-for="k in row.expected_keywords" :key="k" size="small" style="margin-right:4px">{{ k }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="最少 token" width="90">
+                <template #default="{row}">{{ row.min_output_tokens || '—' }}</template>
+              </el-table-column>
+              <el-table-column label="类型" width="80">
+                <template #default="{row}">
+                  <el-tag size="small" :type="row.custom?'warning':'info'">{{ row.custom?'自定义':'内置' }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column label="操作" width="130" fixed="right">
+                <template #default="{ row, $index }">
+                  <el-button type="primary" plain size="small" :disabled="!row.custom" @click="openPromptDialog(row)">编辑</el-button>
+                  <el-button type="danger" plain size="small" :disabled="!row.custom" @click="removePrompt($index)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+            <div class="card-footer">
+              <span class="tertiary">自定义 Prompt 存于 prompts.yaml(质量评分:关键词命中 60% + 长度达标 40%)</span>
+              <div class="spacer"></div>
+              <el-tag v-if="promptsDirty" type="warning" size="small" effect="dark" style="margin-right:8px">有未保存的修改</el-tag>
+              <el-button type="primary" @click="savePrompts">保存 Prompt</el-button>
+            </div>
+          </div>
+        </div>
+
+        <!-- ============ 运行 ============ -->
+        <div v-show="page==='run'">
+          <div class="card">
+            <div class="section-title">运行参数</div>
+            <div class="form-grid">
+              <div class="field">
+                <span class="l">目标(空=全部)</span>
+                <el-select v-model="runForm.target_names" multiple placeholder="全部目标" style="width:100%" size="small">
+                  <el-option v-for="t in targets" :key="t.name" :label="t.name+' ('+t.model+')'" :value="t.name" />
+                </el-select>
+              </div>
+              <div class="field">
+                <span class="l">并发档位</span>
+                <el-input v-model="runForm.concurrency_text" placeholder="1,2,4,8,16,32" size="small" />
+              </div>
+              <div class="field">
+                <span class="l">每单元样本数</span>
+                <el-input-number v-model="runForm.samples" :min="1" :max="500" size="small" controls-position="right" style="width:100%" />
+              </div>
+              <div class="field">
+                <span class="l">预热请求数</span>
+                <el-input-number v-model="runForm.warmup" :min="0" :max="20" size="small" controls-position="right" style="width:100%" />
+              </div>
+              <div class="field">
+                <span class="l">单请求超时(秒)</span>
+                <el-input-number v-model="runForm.timeout" :min="10" :max="600" :step="10" size="small" controls-position="right" style="width:100%" />
+              </div>
+              <div class="field">
+                <span class="l">温度(0=确定)</span>
+                <el-input-number v-model="runForm.temperature" :min="0" :max="2" :step="0.1" size="small" controls-position="right" style="width:100%" />
+              </div>
+              <div class="field">
+                <span class="l">Prompt 集(空=全部)</span>
+                <el-select v-model="runForm.prompt_ids" multiple placeholder="全部(含自定义)" style="width:100%" size="small">
+                  <el-option v-for="p in prompts" :key="p.id" :label="p.label+' ('+bucketLabel(p.bucket)+')'" :value="p.id" />
+                </el-select>
+              </div>
+            </div>
+            <div class="toolbar" style="margin-top: var(--space-md)">
+              <el-button type="primary" :disabled="running" @click="startRun">开始</el-button>
+              <el-button type="danger" plain :disabled="!running" @click="stopRun">停止</el-button>
+              <div class="spacer"></div>
+              <span class="pill" v-if="runId">运行 ID:{{ runId }}</span>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="section-title">实时进度</div>
+            <el-progress :percentage="Math.round(progress*100)" :status="progressStatus" />
+            <el-table :data="liveCells" border size="small" style="width:100%; margin-top: var(--space-md)"
+              empty-text="等待运行开始…">
+              <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
+              <el-table-column prop="prompt_label" label="Prompt" min-width="110" show-overflow-tooltip />
+              <el-table-column prop="concurrency" label="并发" width="60" />
+              <el-table-column label="样本" width="60"><template #default="{row}">{{ row.aggregates.n }}</template></el-table-column>
+              <el-table-column label="TTFT p50(秒)"><template #default="{row}">{{ fmt(row.aggregates.ttft_p50) }}</template></el-table-column>
+              <el-table-column label="首句 p50(秒)"><template #default="{row}">{{ fmt(row.aggregates.tts_p50) }}</template></el-table-column>
+              <el-table-column label="tok/s"><template #default="{row}">{{ fmt(row.aggregates.tokens_per_second_mean) }}</template></el-table-column>
+              <el-table-column label="错误率" width="80"><template #default="{row}">
+                <el-tag size="small" :type="row.aggregates.high_error ? 'danger' : (row.aggregates.error_rate>0?'warning':'success')">
+                  {{ (row.aggregates.error_rate*100).toFixed(0) }}%
+                </el-tag>
+              </template></el-table-column>
+            </el-table>
+          </div>
+        </div>
+
+        <!-- ============ 结果 ============ -->
+        <div v-show="page==='results'">
+          <div class="card">
+            <div class="toolbar">
+              <div class="section-title" style="margin:0">选择运行</div>
+              <div class="spacer"></div>
+              <el-select v-model="resultsRunId" placeholder="选择一次运行" style="width:340px" size="small" @change="loadResultRun">
+                <el-option v-for="r in history" :key="r.run_id" :label="runLabel(r)" :value="r.run_id" />
+              </el-select>
+              <el-button type="primary" plain size="small" @click="loadHistory">刷新</el-button>
+            </div>
+          </div>
+          <template v-if="resultRun">
+            <!-- 速览对比卡片 -->
+            <div class="card">
+              <div class="toolbar">
+                <div class="section-title" style="margin:0">速览对比</div>
+                <div class="spacer"></div>
+                <span class="tertiary" style="font-size:12px">对比并发档位:</span>
+                <el-select v-model="chartConcurrency" size="small" style="width:110px" @change="renderCharts">
+                  <el-option v-for="c in chartConcurrencyOptions" :key="c" :label="'并发 '+c" :value="c" />
+                </el-select>
+              </div>
+              <div class="compare-cards">
+                <div class="compare-card" v-for="card in quickCards" :key="card.label">
+                  <div class="compare-card-header">
+                    <span class="compare-card-label">{{ card.label }}</span>
+                    <span class="tertiary compare-card-unit">{{ card.unit }}</span>
+                  </div>
+                  <div class="rank-list">
+                    <div class="rank-item" v-for="(item, i) in card.items" :key="item.name" :class="{ best: item.isBest, worst: item.isWorst }">
+                      <span class="rank-num">{{ i + 1 }}</span>
+                      <span class="rank-name">{{ item.name }}</span>
+                      <span class="rank-value">{{ item.value }}</span>
+                    </div>
+                    <div v-if="!card.items.length" class="empty small">—</div>
+                  </div>
+                </div>
+              </div>
+              <!-- 综合对比表 -->
+              <div class="compare-table-wrap">
+                <div class="section-title" style="margin:12px 0 8px">综合对比(单元格颜色:绿=最优, 红=最差)</div>
+                <table class="compare-table" v-if="comparisonTable.length">
+                  <thead>
+                    <tr>
+                      <th>模型</th>
+                      <th>首字延迟 (s) ↓</th>
+                      <th>输出速度 (t/s) ↑</th>
+                      <th>端到端延迟 (s) ↓</th>
+                      <th>错误率</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <tr v-for="row in comparisonTable" :key="row.model">
+                      <td class="model-name">{{ row.model }}</td>
+                      <td :class="cellClass(row, 'ttft')">{{ fmt(row.ttft) }}</td>
+                      <td :class="cellClass(row, 'tps')">{{ fmt(row.tps) }}</td>
+                      <td :class="cellClass(row, 'e2e')">{{ fmt(row.e2e) }}</td>
+                      <td :class="cellClass(row, 'err')">{{ row.errPct }}%</td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+            <!-- 对比图表 -->
+            <div class="card">
+              <div class="section-title">首字延迟对比 (TTFT p50,越低越好)</div>
+              <div ref="chartTtft" class="chart"></div>
+            </div>
+            <div class="card">
+              <div class="section-title">输出速度对比 (tokens/s 均值,越高越好)</div>
+              <div ref="chartThroughput" class="chart"></div>
+            </div>
+            <div class="card">
+              <div class="section-title">端到端延迟对比 (E2E p50,越低越好)</div>
+              <div ref="chartE2e" class="chart"></div>
+            </div>
+            <!-- 并发趋势:跨并发档位对比 -->
+            <div class="card">
+              <div class="toolbar">
+                <div class="section-title" style="margin:0">并发趋势(全部 Prompt 平均)</div>
+                <div class="spacer"></div>
+                <el-radio-group v-model="trendMetric" size="small" @change="renderTrendChart">
+                  <el-radio-button v-for="m in TREND_METRICS" :key="m.key" :value="m.key">{{ m.label }}</el-radio-button>
+                </el-radio-group>
+              </div>
+              <div ref="chartTrend" class="chart"></div>
+            </div>
+            <div class="card">
+              <div class="toolbar">
+                <div class="section-title" style="margin:0">并发透视表({{ trendMetricLabel }};行内最优=绿, 最差=红)</div>
+              </div>
+              <el-table :data="pivotRows" border size="small" style="width:100%"
+                empty-text="暂无数据">
+                <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="prompt_label" label="Prompt" min-width="100" show-overflow-tooltip />
+                <el-table-column label="长度档" width="70">
+                  <template #default="{row}">{{ bucketLabel(row.bucket) }}</template>
+                </el-table-column>
+                <el-table-column v-for="c in pivotConcs" :key="c" :label="'并发 '+c" min-width="90">
+                  <template #default="{row}">
+                    <span :class="pivotCellClass(row, c)">{{ fmt(row.values[c]) }}</span>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </div>
+            <!-- 详细表格 + 对话查看 -->
+            <div class="card">
+              <div class="section-title">详细数据 (点击行展开查看对话内容)</div>
+              <el-table :data="resultCells" border size="small" style="width:100%" row-key="rowKey" @expand-change="onExpand">
+                <el-table-column type="expand">
+                  <template #default="{ row }">
+                    <div class="conv-view">
+                      <div class="conv-section">
+                        <div class="conv-label">Prompt ({{ row.prompt_label }})</div>
+                        <div class="conv-text">{{ promptText(row.prompt_id) }}</div>
+                      </div>
+                      <div class="conv-section">
+                        <div class="conv-label">模型回复 (首个成功请求)</div>
+                        <div class="conv-text">{{ firstOutput(row) }}</div>
+                      </div>
+                      <div class="conv-meta" v-if="firstRequest(row)">
+                        <span>TTFT: {{ fmt(firstRequest(row).ttft) }}s</span>
+                        <span>tokens: {{ firstRequest(row).output_tokens }}</span>
+                        <span>tok/s: {{ fmt(firstRequest(row).tokens_per_second) }}</span>
+                        <span>来源: {{ firstRequest(row).token_source }}</span>
+                      </div>
+                    </div>
+                  </template>
+                </el-table-column>
+                <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="prompt_label" label="Prompt" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="concurrency" label="并发" width="55" />
+                <el-table-column label="首字 p50 (秒)"><template #default="{row}">{{ fmt(row.aggregates.ttft_p50) }}</template></el-table-column>
+                <el-table-column label="速度 tok/s"><template #default="{row}">{{ fmt(row.aggregates.tokens_per_second_mean) }}</template></el-table-column>
+                <el-table-column label="端到端 p50 (秒)"><template #default="{row}">{{ fmt(row.aggregates.e2e_p50) }}</template></el-table-column>
+                <el-table-column label="错误率" width="80"><template #default="{row}">
+                  <el-tag size="small" :type="row.aggregates.high_error?'danger':(row.aggregates.error_rate>0?'warning':'success')">{{(row.aggregates.error_rate*100).toFixed(0)}}%</el-tag>
+                </template></el-table-column>
+              </el-table>
+            </div>
+            <!-- 指标说明 -->
+            <div class="card">
+              <el-collapse>
+                <el-collapse-item title="指标说明(点击展开)" name="1">
+                  <div class="metric-help">
+                    <p><b>首字延迟 (TTFT)</b>:从发出请求到收到第一个 token 的时间。越低 = 模型"开口"越快。p50 = 一半请求比这快,p90 = 90% 的请求比这快。</p>
+                    <p><b>输出速度 (tokens/s)</b>:每秒输出多少个 token。越高 = 生成越快。注意:短回复的数值波动大,长回复更稳定。</p>
+                    <p><b>端到端延迟 (E2E)</b>:从发请求到全部收完的总时间 = 首字延迟 + 生成时间。</p>
+                    <p><b>错误率</b>:失败请求(超时/报错)占比。>50% 标红,说明该模型在该并发下已崩溃。</p>
+                    <p class="tertiary">提示:若基准速度比日常使用感觉快,通常因为基准用短 prompt 直连 API,而日常使用有长输入 + 网关 + 产品 UI 缓冲。</p>
+                  </div>
+                </el-collapse-item>
+              </el-collapse>
+            </div>
+          </template>
+          <div v-else class="empty">在上方选择一次运行查看结果。</div>
+        </div>
+
+        <!-- ============ 历史 ============ -->
+        <div v-show="page==='history'">
+          <div v-if="currentRun" class="current-card">
+            <div class="toolbar">
+              <div class="section-title" style="margin:0;color:var(--color-warning)">{{ statusLabel(currentRun.status) }}</div>
+              <div class="spacer"></div>
+              <el-tag size="small" type="warning">{{ currentRun.status }}</el-tag>
+            </div>
+            <div class="kv">
+              <span>运行 ID:{{ currentRun.run_id }}</span>
+              <span>开始:{{ fmtTime(currentRun.started_at) }}</span>
+              <span>目标数:{{ currentRun.n_targets }}</span>
+              <span>已完成单元:{{ currentRun.n_cells }}</span>
+            </div>
+          </div>
+          <div class="card">
+            <div class="toolbar">
+              <div class="section-title" style="margin:0">历史运行</div>
+              <div class="spacer"></div>
+              <span class="tertiary" style="font-size:12px" v-if="historyPolling">每 3 秒自动刷新…</span>
+              <el-button type="primary" plain size="small" @click="loadHistory">刷新</el-button>
+            </div>
+            <el-table :data="history" border size="small" style="width:100%">
+              <el-table-column prop="run_id" label="运行 ID" min-width="120" show-overflow-tooltip />
+              <el-table-column label="开始时间" min-width="150"><template #default="{row}">{{ fmtTime(row.started_at) }}</template></el-table-column>
+              <el-table-column label="结束时间" min-width="150"><template #default="{row}">{{ fmtTime(row.finished_at) }}</template></el-table-column>
+              <el-table-column label="状态" width="100">
+                <template #default="{row}">
+                  <el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag>
+                </template>
+              </el-table-column>
+              <el-table-column prop="n_targets" label="目标数" width="70" />
+              <el-table-column prop="n_cells" label="单元数" width="70" />
+              <el-table-column label="操作" width="150" fixed="right">
+                <template #default="{row}">
+                  <el-button type="primary" plain size="small" @click="viewRun(row)">查看</el-button>
+                  <el-button size="small" @click="setCompareBase(row)">对比</el-button>
+                </template>
+              </el-table-column>
+              <template #empty>
+                <div class="empty">暂无运行记录。运行完成后会自动出现在这里。</div>
+              </template>
+            </el-table>
+          </div>
+        </div>
+
+        <!-- ============ 运行对比 ============ -->
+        <div v-show="page==='compare'">
+          <div class="card">
+            <div class="toolbar">
+              <div class="section-title" style="margin:0">选择两次运行</div>
+              <el-button type="primary" plain size="small" @click="swapCompare">交换基准</el-button>
+              <div class="spacer"></div>
+              <span class="tertiary" style="font-size:12px">基准:</span>
+              <el-select v-model="compareBaseId" placeholder="选择基准运行" style="width:340px" size="small" @change="loadCompare">
+                <el-option v-for="r in history" :key="r.run_id" :label="runLabel(r)" :value="r.run_id" />
+              </el-select>
+              <span class="tertiary" style="font-size:12px">对比:</span>
+              <el-select v-model="compareOtherId" placeholder="选择对比运行" style="width:340px" size="small" @change="loadCompare">
+                <el-option v-for="r in history" :key="r.run_id" :label="runLabel(r)" :value="r.run_id" />
+              </el-select>
+            </div>
+            <div v-if="compareData" class="kv">
+              <span>匹配单元:{{ compareData.n_matched }}</span>
+              <span v-if="compareData.n_base_only" class="tertiary">仅基准有:{{ compareData.n_base_only }}</span>
+              <span v-if="compareData.n_other_only" class="tertiary">仅对比有:{{ compareData.n_other_only }}</span>
+            </div>
+          </div>
+
+          <template v-if="compareData && compareData.n_matched > 0">
+            <!-- 总体变化卡片 -->
+            <div class="card">
+              <div class="toolbar">
+                <div class="section-title" style="margin:0">总体平均变化(对比 vs 基准)</div>
+                <div class="spacer"></div>
+                <el-tag size="small" type="success">{{ compareData.n_better }} 项改善</el-tag>
+                <el-tag size="small" type="danger">{{ compareData.n_worse }} 项退化</el-tag>
+              </div>
+              <div class="compare-cards">
+                <div class="compare-card" v-for="m in COMPARE_METRICS" :key="m.key">
+                  <div class="compare-card-label">{{ m.label }}</div>
+                  <div class="compare-card-value" :class="summaryClass(m, compareData.summary[m.key])">
+                    {{ summaryText(compareData.summary[m.key]) }}
+                  </div>
+                  <div class="compare-card-desc">{{ m.lowerBetter ? '越低越好' : '越高越好' }}</div>
+                </div>
+              </div>
+            </div>
+            <!-- Cell 级明细 -->
+            <div class="card">
+              <div class="toolbar">
+                <div class="section-title" style="margin:0">逐单元明细(基准 → 对比,括号内为变化)</div>
+                <div class="spacer"></div>
+                <span class="tertiary" style="font-size:12px">目标:</span>
+                <el-select v-model="compareTargetFilter" placeholder="全部目标" clearable size="small" style="width:150px">
+                  <el-option v-for="t in compareTargetOptions" :key="t" :label="t" :value="t" />
+                </el-select>
+                <span class="tertiary" style="font-size:12px">并发:</span>
+                <el-select v-model="compareConcurrencyFilter" placeholder="全部并发" clearable size="small" style="width:120px">
+                  <el-option v-for="c in compareConcurrencyOptions" :key="c" :label="'并发 '+c" :value="c" />
+                </el-select>
+              </div>
+              <div class="compare-legend">
+                <span><span <span class="base-label">基准</span>{{ runMetaLabel(compareData.base.run_id) }}</span>
+                <span class="legend-sep"></span>
+                <span><span <span class="base-label">对比</span>{{ runMetaLabel(compareData.other.run_id) }}</span>
+                <span class="tertiary" style="font-size:11px;margin-left:12px">(数值优=绿, 劣=红)</span>
+              </div>
+              <el-table :data="compareRowsFiltered" border size="small" style="width:100%"
+                empty-text="没有匹配的单元,请调整筛选条件">
+                <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="prompt_label" label="Prompt" min-width="100" show-overflow-tooltip />
+                <el-table-column prop="concurrency" label="并发" width="55" />
+                <el-table-column v-for="m in COMPARE_METRICS" :key="m.key" :label="m.label" min-width="130">
+                  <template #default="{ row }">
+                    <div class="diff-val">
+  <span class="pair mono" :class="verdictClass(row.metrics[m.key].verdict)">
+    {{ m.fmtVal(row.metrics[m.key].base) }}<span class="arrow">→</span>{{ m.fmtVal(row.metrics[m.key].other) }}
+  </span>
+  <el-tag class="diff-tag" size="small" :type="verdictTagType(row.metrics[m.key].verdict)">
+    {{ pctText(row.metrics[m.key].pct) }}
+  </el-tag>
+</div>
+                </el-table-column>
+              </el-table>
+            </div>
+          </template>
+          <div v-else-if="compareData" class="empty">两次运行没有可对齐的单元(target × prompt × 并发 均不一致)。</div>
+          <div v-else class="empty">在上方选择两次运行进行对比。也可在「历史」页点击某次运行的「对比」按钮快速设为基准。</div>
+        </div>
+
+      </div>
+    </section>
+  </div>
+
+  <!-- 目标编辑对话框 -->
+  <el-dialog v-model="dlgVisible" :title="editing._idx>=0 ? '编辑目标' : '新增目标'" width="560px" align-center>
+    <el-form label-width="96px" label-position="right" size="default">
+      <el-form-item label="名称">
+        <el-input v-model="editing.name" placeholder="例如 gpt-4o" />
+      </el-form-item>
+      <el-form-item label="接口地址">
+        <el-input v-model="editing.base_url" placeholder="https://api.openai.com/v1" />
+      </el-form-item>
+      <el-form-item label="模型">
+        <el-input v-model="editing.model" placeholder="gpt-4o" />
+      </el-form-item>
+      <el-form-item label="密钥(明文)">
+        <el-input v-model="editing.api_key" placeholder="可留空,改用环境变量" show-password />
+      </el-form-item>
+      <el-form-item label="密钥环境变量">
+        <el-input v-model="editing.api_key_env" placeholder="例如 OPENAI_API_KEY" />
+      </el-form-item>
+      <el-form-item label="温度覆盖">
+        <el-input-number v-model="editing.temperature" :min="0" :max="2" :step="0.1" controls-position="right" />
+        <div class="hint" style="margin-top:4px">留空则使用运行默认温度</div>
+      </el-form-item>
+    </el-form>
+    <div v-if="testResult" class="test-result" :class="{ok: testResult.ok, fail: !testResult.ok}">
+      <template v-if="testResult.ok">
+        <b>测试通过</b> · TTFT {{ fmt(testResult.ttft) }}s · {{ testResult.output_tokens }} tokens
+        <div class="tertiary" style="margin-top:2px">{{ testResult.detail }}</div>
+      </template>
+      <template v-else>
+        <b>测试失败</b> · {{ testResult.error }}
+      </template>
+    </div>
+    <template #footer>
+      <el-button type="success" plain :loading="testingDialog" @click="testTargetDialog">测试连接</el-button>
+      <el-button type="primary" plain @click="dlgVisible=false">取消</el-button>
+      <el-button type="primary" @click="saveTargetDialog">确定</el-button>
+    </template>
+  </el-dialog>
+
+  <!-- Prompt 编辑对话框 -->
+  <el-dialog v-model="promptDlgVisible" :title="promptEditing._idx>=0 ? '编辑 Prompt' : '新增 Prompt'" width="620px" align-center>
+    <el-form label-width="110px" label-position="right" size="default">
+      <el-form-item label="名称">
+        <el-input v-model="promptEditing.label" placeholder="例如 真实长上下文测试" />
+      </el-form-item>
+      <el-form-item label="长度档">
+        <el-select v-model="promptEditing.bucket" style="width:140px">
+          <el-option label="短" value="short" />
+          <el-option label="中" value="medium" />
+          <el-option label="长" value="long" />
+        </el-select>
+      </el-form-item>
+      <el-form-item label="Prompt 内容">
+        <el-input v-model="promptEditing.text" type="textarea" :rows="5" placeholder="输入要测试的 prompt,可粘贴真实长输入" />
+      </el-form-item>
+      <el-form-item label="期望关键词">
+        <el-input v-model="promptEditing.keywords_text" placeholder="多个关键词用逗号分隔,例如 递归,函数" />
+        <div class="hint" style="margin-top:4px">输出中出现这些词计为命中,用于质量评分</div>
+      </el-form-item>
+      <el-form-item label="最少输出 token">
+        <el-input-number v-model="promptEditing.min_output_tokens" :min="0" :step="10" controls-position="right" />
+        <div class="hint" style="margin-top:4px">0 或留空表示不检查长度</div>
+      </el-form-item>
+    </el-form>
+    <template #footer>
+      <el-button type="primary" plain @click="promptDlgVisible=false">取消</el-button>
+      <el-button type="primary" @click="savePromptDialog">确定</el-button>
+    </template>
+  </el-dialog>
+</div>
+
+<script src="https://unpkg.com/vue@3.4.31/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus@2.7.6/dist/index.full.min.js"></script>
+<script src="https://unpkg.com/echarts@5.5.0/dist/echarts.min.js"></script>
+
+<script>
+const { createApp, reactive, ref, computed, nextTick, onMounted, onBeforeUnmount, watch } = Vue;
+
+const BUILTIN_PROMPTS = [
+  { id: "short", label: "问候", bucket: "短" },
+  { id: "medium", label: "解释递归", bucket: "中" },
+  { id: "long", label: "500字短文", bucket: "长" },
+];
+
+async function api(path, opts) {
+  const res = await fetch(path, opts);
+  if (!res.ok) {
+    const t = await res.text().catch(() => "");
+    throw new Error(res.status + " " + t);
+  }
+  return res.json();
+}
+
+const app = createApp({
+  setup() {
+    const page = ref("config");
+    const title = ref("目标配置");
+    const targets = ref([]);
+    const history = ref([]);
+    const resultRun = ref(null);
+    const resultsRunId = ref("");
+    const liveCells = ref([]);
+    const progress = ref(0);
+    const running = ref(false);
+    const runId = ref("");
+    const currentRun = ref(null);
+    const prompts = ref([]);
+    const targetsDirty = ref(false);
+    const promptsDirty = ref(false);
+    const promptDlgVisible = ref(false);
+    const promptEditing = reactive({ label:"", bucket:"medium", text:"", keywords_text:"", min_output_tokens: null, _idx:-1 });
+    let evtSource = null;
+    const chartThroughput = ref(null);
+    const chartTtft = ref(null);
+    const chartE2e = ref(null);
+    let echartsThroughput = null, echartsTtft = null, echartsE2e = null;
+    const chartConcurrency = ref(null);
+    const chartConcurrencyOptions = computed(() => {
+      if (!resultRun.value) return [];
+      return [...new Set(resultRun.value.cells.map(c => c.concurrency))].sort((a,b)=>a-b);
+    });
+    // Flatten cells for the detail table, with a stable row key.
+    const resultCells = computed(() => {
+      if (!resultRun.value) return [];
+      return resultRun.value.cells.map(c => ({ ...c, rowKey: c.target + "/" + c.prompt_id + "/" + c.concurrency }));
+    });
+    // Quick comparison cards: for each metric, find the best model at the selected concurrency.
+    const quickCards = computed(() => {
+      if (!resultRun.value) return [];
+      const cc = chartConcurrency.value;
+      const cells = resultRun.value.cells.filter(c => c.concurrency === cc);
+      const targets = [...new Set(cells.map(c => c.target))];
+      const avg = (t, fn) => {
+        const vals = cells.filter(x => x.target === t).map(x => x.aggregates[fn]).filter(v => v != null);
+        return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+      };
+      const ranked = (fn, lowerBetter, fmtFn) => {
+        const scored = targets.map(t => ({ name: t, v: avg(t, fn) })).filter(x => x.v != null);
+        scored.sort((a,b) => lowerBetter ? a.v - b.v : b.v - a.v);
+        const len = scored.length;
+        return scored.map((x, i) => ({
+          name: x.name, value: fmtFn(x.v),
+          isBest: len > 1 && i === 0, isWorst: len > 1 && i === len - 1
+        }));
+      };
+      return [
+        { label: "最快首字", unit: "TTFT p50, 越低越好", items: ranked("ttft_p50", true, v => v.toFixed(3) + "s") },
+        { label: "最高速度", unit: "tokens/s 均值, 越高越好", items: ranked("tokens_per_second_mean", false, v => v.toFixed(1) + " t/s") },
+        { label: "最低延迟", unit: "E2E p50, 越低越好", items: ranked("e2e_p50", true, v => v.toFixed(3) + "s") },
+        { label: "最稳定", unit: "错误率, 越低越好", items: targets.map(t => {
+          const v = avg(t, "error_rate");
+          return { name: t, value: v != null ? (v * 100).toFixed(0) + "%" : "—", isBest: false, isWorst: false };
+        }).sort((a,b) => {
+          const va = parseFloat(a.value) || 0, vb = parseFloat(b.value) || 0;
+          return va - vb;
+        }).map((x, i, arr) => ({ ...x, isBest: arr.length > 1 && i === 0, isWorst: arr.length > 1 && i === arr.length - 1 })) },
+      ];
+    });
+    // Comprehensive comparison table: one row per model, color-coded cells.
+    const comparisonTable = computed(() => {
+      if (!resultRun.value) return [];
+      const cc = chartConcurrency.value;
+      const cells = resultRun.value.cells.filter(c => c.concurrency === cc);
+      const targets = [...new Set(cells.map(c => c.target))];
+      const avg = (t, fn) => {
+        const vals = cells.filter(x => x.target === t).map(x => x.aggregates[fn]).filter(v => v != null);
+        return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+      };
+      const metrics = ["ttft", "tps", "e2e", "err"];
+      const raw = targets.map(t => ({
+        model: t,
+        ttft: avg(t, "ttft_p50"),
+        tps: avg(t, "tokens_per_second_mean"),
+        e2e: avg(t, "e2e_p50"),
+        err: avg(t, "error_rate"),
+      }));
+      // Assign color class per metric: best=best, worst=worst, else neutral.
+      const assign = (key, lowerBetter) => {
+        const vals = raw.map(r => r[key]).filter(v => v != null);
+        if (!vals.length) return;
+        const best = lowerBetter ? Math.min(...vals) : Math.max(...vals);
+        const worst = lowerBetter ? Math.max(...vals) : Math.min(...vals);
+        for (const r of raw) {
+          if (r[key] == null) continue;
+          r[key + "_cls"] = r[key] === best ? "best" : (r[key] === worst ? "worst" : "");
+        }
+      };
+      assign("ttft", true); assign("tps", false); assign("e2e", true); assign("err", true);
+      for (const r of raw) r.errPct = r.err != null ? (r.err * 100).toFixed(0) : "—";
+      return raw;
+    });
+
+    
+    // ---- 并发趋势相关 computed ----
+    const trendMetricLabel = computed(() => {
+      const m = TREND_METRICS.find(x => x.key === trendMetric.value);
+      return m ? m.label : trendMetric.value;
+    });
+    const pivotConcs = computed(() => {
+      if (!resultRun.value) return [];
+      return [...new Set(resultRun.value.cells.map(c => c.concurrency))].sort((a,b)=>a-b);
+    });
+    const pivotRows = computed(() => {
+      if (!resultRun.value) return [];
+      const cells = resultRun.value.cells;
+      const concs = pivotConcs.value;
+      // group by target + prompt_id
+      const groups = {};
+      cells.forEach(c => {
+        const key = c.target + '/' + c.prompt_id;
+        if (!groups[key]) groups[key] = [];
+        groups[key].push(c);
+      });
+      const lowerBetter = TREND_METRICS.find(m=>m.key===trendMetric.value)?.lowerBetter ?? true;
+      const rows = [];
+      for (const [key, gc] of Object.entries(groups)) {
+        const [target, promptId] = key.split('/');
+        const row = {
+          target,
+          prompt_label: gc[0].prompt_label || promptId,
+          bucket: gc[0].bucket || 'medium',
+          values: {},
+        };
+        for (const conc of concs) {
+          const cell = gc.find(x => x.concurrency === conc);
+          row.values[conc] = cell ? cell.aggregates[trendMetric.value] : null;
+        }
+        // compute best/worst for this row based on selected metric direction
+        const vals = Object.values(row.values).filter(v=>v!=null);
+        if (vals.length === 0) {
+          row.bestVal = row.worstVal = null;
+        } else {
+          row.bestVal = lowerBetter ? Math.min(...vals) : Math.max(...vals);
+          row.worstVal = lowerBetter ? Math.max(...vals) : Math.min(...vals);
+        }
+        rows.push(row);
+      }
+      return rows;
+    });
+    // 单元格类名：若值等于本行最优则 v-better，最差则 v-worse，无则 ''
+    const pivotCellClass = (row, conc) => {
+      const val = row.values[conc];
+      if (val == null) return '';
+      const best = row.bestVal, worst = row.worstVal;
+      if (val === best) return 'v-better';
+      if (val === worst) return 'v-worse';
+      return '';
+    };
+    // 并发趋势折线图
+    const renderTrendChart = () => {
+      if (!resultRun.value) return;
+      const concs = pivotConcs.value.sort((a,b)=>a-b);
+      const tnames = [...new Set(resultRun.value.cells.map(c=>c.target))];
+      const colors = ['#1e3a8a','#3b82f6','#64748b','#10b981','#f59e0b','#ef4444'];
+      // compute series data: for each target, avg value per concurrency
+      const series = tnames.map((t, ti) => {
+        const vals = concs.map(conc => {
+          const row = pivotRows.value.find(r=>r.target===t);
+          return row ? row.values[conc] : null;
+        });
+        return {
+          name: t,
+          type: 'line',
+          data: vals,
+          symbol: 'none',
+          areaStyle: { opacity: 0.1 },
+          itemStyle: { color: colors[ti % colors.length] },
+        };
+      });
+      const chart = echarts.init(chartTrend.value);
+      if (chart) {
+        chart.dispose();
+        chartTrend.value = null;
+      }
+      chartTrend.value = echarts.init(document.getElementById('chartTrend') || chartTrend.value);
+      if (!chartTrend.value) return;
+      chart.setOption({
+        title: { text: '并发趋势 (' + trendMetricLabel.value + ')' },
+        tooltip: { trigger: 'axis' },
+        legend: { data: tnames },
+        xAxis: { type: 'category', data: concs.map(c=>'并发 '+c) },
+        yAxis: { name: trendMetric.value.includes('tok') ? 't/s' : '秒' },
+        series: series,
+      });
+    };
+
+const runForm = reactive({
+      target_names: [], concurrency_text: "1,2,4,8,16,32",
+      samples: 20, warmup: 2, timeout: 120, temperature: 0.0, prompt_ids: [],
+    });
+
+    // ---- run compare ----
+    const COMPARE_METRICS = [
+      { key:"ttft_p50", label:"首字 p50(s)", lowerBetter:true, fmtVal:v=>fmt(v) },
+      { key:"ttft_p90", label:"首字 p90(s)", lowerBetter:true, fmtVal:v=>fmt(v) },
+      { key:"e2e_p50", label:"E2E p50(s)", lowerBetter:true, fmtVal:v=>fmt(v) },
+      { key:"itl_p50", label:"ITL p50(s)", lowerBetter:true, fmtVal:v=>fmt(v) },
+      { key:"tokens_per_second_mean", label:"速度(t/s)", lowerBetter:false, fmtVal:v=>fmt(v) },
+      { key:"error_rate", label:"错误率", lowerBetter:true, fmtVal:v=>v==null?"-":(v*100).toFixed(1)+"%" },
+    ];
+    const compareBaseId = ref("");
+    const compareOtherId = ref("");
+    const compareData = ref(null);
+    const compareTargetFilter = ref("");
+    const compareConcurrencyFilter = ref(null);
+    const TREND_METRICS = [
+      { key:"ttft_p50", label:"首字 p50(s)", lowerBetter:true },
+      { key:"tokens_per_second_mean", label:"速度(t/s)", lowerBetter:false },
+      { key:"e2e_p50", label:"E2E p50(s)", lowerBetter:true },
+    ];
+    const trendMetric = ref("ttft_p50");
+    const trendData = ref(null);
+
+    const dlgVisible = ref(false);
+    const editing = reactive({ name:"", base_url:"https://api.openai.com/v1", model:"", api_key:"", api_key_env:"", temperature: null, _idx:-1 });
+    const testingId = ref("");
+    const testingDialog = ref(false);
+    const testResult = ref(null);
+
+    const pageTitles = { config:"目标配置", prompts:"Prompt 管理", run:"运行", results:"结果", history:"历史", compare:"运行对比" };
+    let historyTimer = null;
+    const historyPolling = ref(false);
+
+    function onPage(k) {
+      // Warn if leaving a page with unsaved edits.
+      if (k !== page.value && ((page.value==="config" && targetsDirty.value) || (page.value==="prompts" && promptsDirty.value))) {
+        if (!window.confirm("当前页面有未保存的修改,离开将丢失。确定离开?")) return;
+      }
+      page.value = k; title.value = pageTitles[k];
+      if (k === "history") { startHistoryPolling(); loadHistory(); }
+      else stopHistoryPolling();
+      if (k === "results") loadHistory();
+      if (k === "compare") loadHistory();
+      if (k === "prompts") refreshPrompts();
+    }
+
+    function startHistoryPolling() {
+      stopHistoryPolling();
+      historyPolling.value = true;
+      historyTimer = setInterval(async () => {
+        try {
+          const s = await api("/api/run/status");
+          currentRun.value = s.running ? s : null;
+        } catch (e) {}
+        loadHistory();
+      }, 3000);
+    }
+    function stopHistoryPolling() {
+      if (historyTimer) { clearInterval(historyTimer); historyTimer = null; }
+      historyPolling.value = false;
+    }
+
+    async function refreshTargets() {
+      try { const d = await api("/api/targets"); targets.value = d.targets; targetsDirty.value = false; }
+      catch (e) { ElementPlus.ElMessage.error("加载目标失败:" + e.message); }
+    }
+    async function loadHistory() {
+      try { const d = await api("/api/runs"); history.value = d.runs; }
+      catch (e) { /* silent */ }
+    }
+
+    function openTargetDialog(row) {
+      Object.assign(editing, { name:"", base_url:"https://api.openai.com/v1", model:"", api_key:"", api_key_env:"", temperature: null, _idx:-1 });
+      if (row) { editing.name=row.name; editing.base_url=row.base_url; editing.model=row.model;
+        editing.api_key_env=row.api_key_env||""; editing.temperature=row.temperature; editing._idx=targets.value.indexOf(row); }
+      testResult.value = null;
+      dlgVisible.value = true;
+    }
+    async function testTargetRow(row) {
+      testingId.value = row.name;
+      try {
+        const r = await api("/api/targets/test", { method:"POST", headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ name:row.name, base_url:row.base_url, model:row.model, api_key_env:row.api_key_env, temperature:row.temperature }) });
+        if (r.ok) ElementPlus.ElMessage.success(row.name + " 测试通过 · TTFT " + fmt(r.ttft) + "s");
+        else ElementPlus.ElMessage.error(row.name + " 测试失败:" + r.error);
+      } catch (e) { ElementPlus.ElMessage.error(row.name + " 测试失败:" + e.message); }
+      finally { testingId.value = ""; }
+    }
+    async function testTargetDialog() {
+      if (!editing.base_url || !editing.model) { ElementPlus.ElMessage.warning("接口地址和模型不能为空"); return; }
+      testingDialog.value = true;
+      testResult.value = null;
+      try {
+        const r = await api("/api/targets/test", { method:"POST", headers:{ "Content-Type":"application/json" },
+          body: JSON.stringify({ name:editing.name, base_url:editing.base_url, model:editing.model,
+            api_key: editing.api_key||undefined, api_key_env: editing.api_key_env||undefined, temperature: editing.temperature }) });
+        testResult.value = r;
+      } catch (e) {
+        testResult.value = { ok:false, error: e.message };
+      } finally { testingDialog.value = false; }
+    }
+    function saveTargetDialog() {
+      if (!editing.name || !editing.base_url || !editing.model) {
+        ElementPlus.ElMessage.warning("名称/接口地址/模型不能为空"); return;
+      }
+      const payload = { name:editing.name, base_url:editing.base_url, model:editing.model,
+        api_key: editing.api_key||undefined, api_key_env: editing.api_key_env||undefined,
+        temperature: editing.temperature };
+      const view = { name:payload.name, base_url:payload.base_url, model:payload.model,
+        has_api_key: !!editing.api_key, api_key_env: editing.api_key_env||"", temperature: editing.temperature, _payload: payload };
+      if (editing._idx >= 0) targets.value[editing._idx] = { ...targets.value[editing._idx], ...view };
+      else targets.value.push(view);
+      targetsDirty.value = true;
+      dlgVisible.value = false;
+    }
+    function removeTarget(i) { targets.value.splice(i,1); targetsDirty.value = true; }
+    async function saveTargets() {
+      // Always send the full visible field set so a save doesn't wipe
+      // api_key_env / temperature. api_key is only included when the user
+      // just typed it (via _payload); the backend preserves the existing
+      // key when it's absent.
+      const payload = targets.value.map(t => {
+        const base = {
+          name: t.name,
+          base_url: t.base_url,
+          model: t.model,
+          api_key_env: t.api_key_env || undefined,
+          temperature: t.temperature,
+        };
+        // If this target came from an Add/Edit dialog (_payload present),
+        // honor the api_key the user entered (may be undefined = keep existing).
+        if (t._payload && t._payload.api_key) {
+          base.api_key = t._payload.api_key;
+        }
+        return base;
+      });
+      try {
+        await api("/api/targets", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ targets: payload }) });
+        ElementPlus.ElMessage.success("已保存"); targetsDirty.value = false; refreshTargets();
+      } catch (e) { ElementPlus.ElMessage.error("保存失败:" + e.message); }
+    }
+
+    // ---- prompt management ----
+    function bucketLabel(b) { return { short:"短", medium:"中", long:"长" }[b] || b; }
+    async function refreshPrompts() {
+      try { const d = await api("/api/prompts"); prompts.value = d.prompts; promptsDirty.value = false; }
+      catch (e) { ElementPlus.ElMessage.error("加载 Prompt 失败:" + e.message); }
+    }
+    function openPromptDialog(row) {
+      Object.assign(promptEditing, { label:"", bucket:"medium", text:"", keywords_text:"", min_output_tokens: null, _idx:-1 });
+      if (row) {
+        promptEditing.label=row.label; promptEditing.bucket=row.bucket; promptEditing.text=row.text;
+        promptEditing.keywords_text=(row.expected_keywords||[]).join(", ");
+        promptEditing.min_output_tokens=row.min_output_tokens||null;
+        promptEditing._idx=prompts.value.indexOf(row);
+      }
+      promptDlgVisible.value = true;
+    }
+    function savePromptDialog() {
+      if (!promptEditing.label || !promptEditing.text) { ElementPlus.ElMessage.warning("名称和内容不能为空"); return; }
+      const kws = promptEditing.keywords_text.split(",").map(s=>s.trim()).filter(Boolean);
+      const payload = { id: prompts.value[promptEditing._idx]?.id || ("custom-"+Date.now().toString(36)),
+        label:promptEditing.label, bucket:promptEditing.bucket, text:promptEditing.text,
+        expected_keywords:kws, min_output_tokens:promptEditing.min_output_tokens||null, custom:true };
+      const view = { ...payload };
+      if (promptEditing._idx >= 0) prompts.value[promptEditing._idx] = view;
+      else prompts.value.push(view);
+      promptsDirty.value = true;
+      promptDlgVisible.value = false;
+    }
+    function removePrompt(i) { prompts.value.splice(i,1); promptsDirty.value = true; }
+    async function savePrompts() {
+      const payload = prompts.value.filter(p=>p.custom).map(p => ({
+        id:p.id, label:p.label, bucket:p.bucket, text:p.text,
+        expected_keywords:p.expected_keywords||[], min_output_tokens:p.min_output_tokens||null
+      }));
+      try {
+        await api("/api/prompts", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ prompts: payload }) });
+        ElementPlus.ElMessage.success("已保存"); promptsDirty.value = false; refreshPrompts();
+      } catch (e) { ElementPlus.ElMessage.error("保存失败:" + e.message); }
+    }
+
+    async function startRun() {
+      liveCells.value = []; progress.value = 0;
+      const clevels = runForm.concurrency_text.split(",").map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
+      if (!clevels.length) { ElementPlus.ElMessage.warning("并发档位无效"); return; }
+      const body = {
+        concurrency_levels: clevels, samples: runForm.samples, warmup: runForm.warmup,
+        timeout: runForm.timeout, temperature: runForm.temperature,
+        target_names: runForm.target_names, prompt_ids: runForm.prompt_ids,
+      };
+      try {
+        const d = await api("/api/run/start", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
+        runId.value = d.run_id; running.value = true;
+        openSSE();
+      } catch (e) { ElementPlus.ElMessage.error("启动失败:" + e.message); }
+    }
+    async function stopRun() {
+      try { await api("/api/run/stop", { method:"POST" }); ElementPlus.ElMessage.info("已请求停止"); }
+      catch (e) { ElementPlus.ElMessage.error("停止失败:" + e.message); }
+    }
+    function openSSE() {
+      if (evtSource) evtSource.close();
+      evtSource = new EventSource("/api/run/events");
+      evtSource.onmessage = async (e) => {
+        const ev = JSON.parse(e.data);
+        if (ev.type === "cell_done") {
+          const idx = liveCells.value.findIndex(c => c.target===ev.cell.target && c.prompt_id===ev.cell.prompt_id && c.concurrency===ev.cell.concurrency);
+          if (idx >= 0) liveCells.value[idx] = ev.cell; else liveCells.value.push(ev.cell);
+          progress.value = ev.progress;
+        } else if (ev.type === "log") {
+          ElementPlus.ElMessage.info(ev.message);
+        } else if (ev.type === "run_done") {
+          running.value = false; progress.value = 1;
+          ElementPlus.ElMessage.success("运行结束:" + statusLabel(ev.message));
+          if (evtSource) { evtSource.close(); evtSource = null; }
+          await loadHistory();
+          // Auto-navigate to results with the completed run selected
+          if (runId.value && history.value.some(r => r.run_id === runId.value)) {
+            resultsRunId.value = runId.value;
+            onPage("results");
+            await loadResultRun();
+          }
+        }
+      };
+      evtSource.onerror = async () => {
+        // 连接中断:检查服务端是否真的结束,避免漏接 run_done
+        try {
+          const s = await api("/api/run/status");
+          if (!s.running) {
+            if (running.value) {
+              running.value = false;
+              ElementPlus.ElMessage.warning("连接中断,运行已结束");
+              await loadHistory();
+              if (runId.value && history.value.some(r => r.run_id === runId.value)) {
+                resultsRunId.value = runId.value;
+                onPage("results");
+                await loadResultRun();
+              }
+            }
+            if (evtSource) { evtSource.close(); evtSource = null; }
+          }
+        } catch (e) {}
+      };
+    }
+
+    async function loadResultRun() {
+      if (!resultsRunId.value) { resultRun.value = null; return; }
+      try {
+        resultRun.value = await api("/api/runs/" + resultsRunId.value);
+        const opts = chartConcurrencyOptions.value;
+        chartConcurrency.value = opts.length ? opts[0] : null;
+        renderCharts();
+      } catch (e) { ElementPlus.ElMessage.error("加载运行失败:" + e.message); }
+    }
+    function viewRun(row) {
+      resultsRunId.value = row.run_id;
+      onPage("results");
+      loadResultRun();
+    }
+
+    // ---- run compare ----
+    function setCompareBase(row) {
+      compareBaseId.value = row.run_id;
+      if (!compareOtherId.value || compareOtherId.value === row.run_id) {
+        const cand = history.value.find(r => r.run_id !== row.run_id);
+        compareOtherId.value = cand ? cand.run_id : "";
+      }
+      compareData.value = null;
+      onPage("compare");
+      loadCompare();
+    }
+    function swapCompare() {
+      const t = compareBaseId.value;
+      compareBaseId.value = compareOtherId.value;
+      compareOtherId.value = t;
+      loadCompare();
+    }
+    async function loadCompare() {
+      if (!compareBaseId.value || !compareOtherId.value) { compareData.value = null; return; }
+      if (compareBaseId.value === compareOtherId.value) {
+        ElementPlus.ElMessage.warning("两次运行不能相同");
+        compareData.value = null;
+        return;
+      }
+      try {
+        compareData.value = await api("/api/compare?base=" + compareBaseId.value + "&other=" + compareOtherId.value);
+      } catch (e) {
+        compareData.value = null;
+        ElementPlus.ElMessage.error("加载对比失败:" + e.message);
+      }
+    }
+    const compareTargetOptions = computed(() => {
+      return compareData.value ? [...new Set(compareData.value.rows.map(r => r.target))] : [];
+    });
+    const compareConcurrencyOptions = computed(() => {
+      return compareData.value ? [...new Set(compareData.value.rows.map(r => r.concurrency))].sort((a,b)=>a-b) : [];
+    });
+    const compareRowsFiltered = computed(() => {
+      if (!compareData.value) return [];
+      let rows = compareData.value.rows;
+      if (compareTargetFilter.value) rows = rows.filter(r => r.target === compareTargetFilter.value);
+      if (compareConcurrencyFilter.value != null && compareConcurrencyFilter.value !== "") {
+        rows = rows.filter(r => r.concurrency === compareConcurrencyFilter.value);
+      }
+      return rows;
+    });
+    function pctText(entry) {
+      const v = entry.verdict;
+      if (v === "na" || entry.pct == null) return "—";
+      const pct = (entry.pct > 0 ? "+" : "") + entry.pct.toFixed(1) + "%";
+      const word = v === "better" ? "对比更好" : (v === "worse" ? "对比更差" : "持平");
+      return pct + " · " + word;
+    }
+    function verdictClass(v) { return v === "better" ? "v-better" : (v === "worse" ? "v-worse" : "v-same"); }
+    // Color one side of a metric pair: the better side green, the worse red.
+    function sideClass(m, entry, which) {
+      const v = entry.verdict;
+      if (v !== "better" && v !== "worse") return "v-same";
+      const otherIsBetter = v === "better";
+      const thisIsOther = which === "other";
+      return (thisIsOther === otherIsBetter) ? "v-better" : "v-worse";
+    }
+    function runMetaLabel(runId) {
+      const r = history.value.find(x => x.run_id === runId);
+      if (!r) return runId || "";
+      return fmtTimeShort(r.started_at) + " · " + ((r.models || []).join(", ") || "无目标") + " (" + runId.slice(0, 6) + ")";
+    }
+    function verdictTagType(v) { return v === "better" ? "success" : (v === "worse" ? "danger" : "info"); }
+    function summaryText(pct) {
+      if (pct == null) return "—";
+      return (pct > 0 ? "+" : "") + pct.toFixed(1) + "%";
+    }
+    function summaryClass(m, pct) {
+      if (pct == null || Math.abs(pct) < 2) return "";
+      const improved = m.lowerBetter ? pct < 0 : pct > 0;
+      return improved ? "v-better" : "v-worse";
+    }
+
+    function renderCharts() {
+      nextTick(() => {
+        const cells = resultRun.value ? resultRun.value.cells : [];
+        const cc = chartConcurrency.value;
+        const tnames = [...new Set(cells.map(c=>c.target))];
+        const colors = ["#1e3a8a","#3b82f6","#64748b","#10b981","#f59e0b","#ef4444"];
+        // helper: average a metric for a target at the selected concurrency
+        const avg = (t, fn) => {
+          const vals = cells.filter(x=>x.target===t && x.concurrency===cc)
+            .map(x=>x.aggregates[fn]).filter(v=>v!=null);
+          return vals.length ? vals.reduce((a,b)=>a+b,0)/vals.length : null;
+        };
+        const barChart = (refEl, existing, title, fn, unit, lowerBetter) => {
+          if (!refEl) return null;
+          if (existing) existing.dispose();
+          const inst = echarts.init(refEl);
+          inst.setOption({
+            color: colors,
+            tooltip: { trigger: "axis", formatter: p => p.map(x => x.seriesName + ": " + (x.value!=null?x.value.toFixed(3)+" "+unit:"无数据")).join("<br/>") },
+            grid: { left: 60, right: 20, top: 20, bottom: 30 },
+            xAxis: { type: "category", data: tnames, axisLabel: { interval: 0 } },
+            yAxis: { type: "value", name: unit },
+            series: [{ type: "bar", barMaxWidth: 48, data: tnames.map(t => avg(t, fn)),
+              itemStyle: { color: (p) => {
+                if (p.value == null) return "#e6edf4";
+                const vals = tnames.map(tt => avg(tt, fn)).filter(v=>v!=null);
+                if (!vals.length) return "#1e3a8a";
+                const best = lowerBetter ? Math.min(...vals) : Math.max(...vals);
+                return p.value === best ? "#10b981" : "#1e3a8a";
+              }}
+            }],
+          });
+          return inst;
+        };
+        echartsTtft = barChart(chartTtft.value, echartsTtft, "TTFT", "ttft_p50", "秒", true);
+        echartsThroughput = barChart(chartThroughput.value, echartsThroughput, "tokens/s", "tokens_per_second_mean", "t/s", false);
+        echartsE2e = barChart(chartE2e.value, echartsE2e, "E2E", "e2e_p50", "秒", true);
+      });
+    }
+
+    // ---- conversation viewer helpers ----
+    function promptText(promptId) {
+      if (!resultRun.value) return "";
+      const p = resultRun.value.prompts.find(x => x.id === promptId);
+      return p ? p.text : "";
+    }
+    function firstRequest(row) {
+      const ok = row.requests.filter(r => r.ok);
+      return ok.length ? ok[0] : (row.requests.length ? row.requests[0] : null);
+    }
+    function firstOutput(row) {
+      const r = firstRequest(row);
+      if (!r) return "(无请求)";
+      if (r.output_text) return r.output_text;
+      return r.ok ? "(空回复)" : "(请求失败: " + (r.error || "") + ")";
+    }
+    function onExpand(row, expanded) { /* no-op, data already in row */ }
+    function cellClass(row, key) {
+      const clsKey = key === "err" ? "err" : key + "_cls";
+      const val = row[clsKey];
+      if (val === "best") return "cell-best";
+      if (val === "worst") return "cell-worst";
+      return "";
+    }
+
+    function fmt(v) { return (v===null||v===undefined) ? "-" : (typeof v==="number" ? v.toFixed(3) : v); }
+    function fmtTime(t) { if (!t) return "-"; return new Date(t*1000).toLocaleString("zh-CN"); }
+    function fmtTimeShort(t) {
+      if (!t) return "";
+      const d = new Date(t*1000), p = n => String(n).padStart(2, "0");
+      return p(d.getMonth()+1) + "-" + p(d.getDate()) + " " + p(d.getHours()) + ":" + p(d.getMinutes());
+    }
+    function runLabel(r) {
+      const models = (r.models || []).join(", ") || "无目标";
+      const id = r.run_id ? " (" + r.run_id.slice(0, 6) + ")" : "";
+      return fmtTimeShort(r.started_at) + " · " + models + id;
+    }
+    function statusType(s) { return s==="completed"?"success": s==="aborted"?"warning": s==="failed"?"danger":"info"; }
+    function statusLabel(s) { return { completed:"已完成", aborted:"已中止", failed:"失败", running:"运行中" }[s] || s; }
+    const progressStatus = () => running.value ? "" : "success";
+
+    function beforeunloadHandler(e) {
+      if (targetsDirty.value || promptsDirty.value) {
+        e.preventDefault();
+        e.returnValue = "";
+      }
+    }
+    onMounted(() => { refreshTargets(); loadHistory(); refreshPrompts(); window.addEventListener("beforeunload", beforeunloadHandler); });
+    onBeforeUnmount(() => { stopHistoryPolling(); if (evtSource) evtSource.close(); window.removeEventListener("beforeunload", beforeunloadHandler); });
+
+    return {
+      page, title, targets, history, resultRun, resultsRunId,
+      liveCells, progress, running, runId, currentRun, historyPolling,
+      prompts, promptDlgVisible, promptEditing, targetsDirty, promptsDirty,
+      runForm, builtinPrompts: BUILTIN_PROMPTS,
+      dlgVisible, editing, testingId, testingDialog, testResult,
+      chartThroughput, chartTtft, chartE2e, chartConcurrency, chartConcurrencyOptions,
+      resultCells, quickCards, comparisonTable,
+      COMPARE_METRICS, compareBaseId, compareOtherId, compareData,
+      compareTargetFilter, compareConcurrencyFilter,
+      compareTargetOptions, compareConcurrencyOptions, compareRowsFiltered,
+      setCompareBase, swapCompare, loadCompare, pctText, verdictClass, verdictTagType, summaryText, summaryClass,
+      sideClass, runMetaLabel,
+      onPage, refreshTargets, openTargetDialog, saveTargetDialog, removeTarget, saveTargets,
+      testTargetRow, testTargetDialog,
+      refreshPrompts, openPromptDialog, savePromptDialog, removePrompt, savePrompts, bucketLabel,
+      startRun, stopRun, loadResultRun, viewRun, loadHistory, renderCharts,
+      promptText, firstRequest, firstOutput, onExpand, cellClass,
+      fmt, fmtTime, fmtTimeShort, runLabel, statusType, statusLabel, progressStatus,
+    
+      trendMetric,
+      trendData,
+      pivotRows,
+      pivotConcs,
+      trendMetricLabel,
+      renderTrendChart,
+      pivotCellClass,
+};
+  }
+});
+app.use(ElementPlus);
+app.mount("#app");
+
+</script>
+
+</body>
+</html>

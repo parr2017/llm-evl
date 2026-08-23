@@ -1,0 +1,37 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "llm-evl"
+version = "0.1.0"
+description = "LLM performance benchmark: TTFT, tokens/s, ITL across OpenAI-compatible endpoints."
+requires-python = ">=3.11"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "llm-evl" }]
+dependencies = [
+    "httpx>=0.27",
+    "tiktoken>=0.7",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "pyyaml>=6.0",
+    "rich>=13.7",
+    "click>=8.1",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8", "pytest-asyncio>=0.23"]
+
+[project.scripts]
+llm-evl = "llm_evl.cli.main:cli"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["llm_evl*"]
+
+[tool.setuptools.package-data]
+"llm_evl" = ["web/*.html", "web/*.js", "web/*.css"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"

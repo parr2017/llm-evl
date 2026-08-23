@@ -1,0 +1,23 @@
+# Secrets & local config
+targets.yaml
+*.env
+.env
+runs/
+*.json
+!llm_evl/**/*.json
+!pyproject.toml
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+build/
+dist/
+.venv/
+venv/
+
+# Editor
+.vscode/
+.idea/
+*.swp

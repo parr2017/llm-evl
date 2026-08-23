@@ -1,0 +1,6 @@
+targets:
+- name: viza
+  base_url: http://192.168.1.237:8001/v1
+  model: Qwen3.6
+  api_key: '12345'
+  temperature: null
