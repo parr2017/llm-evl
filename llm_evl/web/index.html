@@ -102,9 +102,40 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
 .compare-legend { display: flex; align-items: center; gap: var(--space-md); font-size: 13px; margin-top: 8px; padding-top: var(--space-sm); border-top: 1px solid var(--color-border-light); flex-wrap: wrap; }
 .compare-legend .side-label { color: var(--color-primary); font-weight: 600; }
 .legend-sep { width: 1px; height: 14px; background: var(--color-border); }
-.v-better { color: var(--color-success); }
-.v-worse { color: var(--color-danger); }
-.v-same { color: var(--color-text-tertiary); }
+.v-better { color: var(--color-success); }
+.v-worse { color: var(--color-danger); }
+.v-same { color: var(--color-text-tertiary); }
+.cell-best { background: rgba(16,185,129,.12); color: #065f46; }
+.cell-worst { background: rgba(239,68,68,.12); color: #991b1b; }
+.conc-group { margin-bottom: var(--space-md); }
+.conc-group:last-child { margin-bottom: 0; }
+.conc-group-header { display: flex; align-items: center; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); background: var(--color-primary-light); border-radius: var(--radius-sm) var(--radius-sm) 0 0; border-bottom: 2px solid var(--color-primary); }
+.conc-group-badge { font-size: 13px; font-weight: 600; color: var(--color-primary); white-space: nowrap; }
+.conc-group-summary { font-size: 12px; color: var(--color-text-secondary); }
+.conc-group-summary b { color: var(--color-text); font-weight: 600; }
+.conc-group .el-table { border-radius: 0 0 var(--radius-sm) var(--radius-sm); }
+.conc-delta { font-size: 11px; font-weight: 600; margin-left: 4px; }
+.conc-delta-better { color: var(--color-success); }
+.conc-delta-worse { color: var(--color-danger); }
+.insight-list { display: flex; flex-direction: column; gap: var(--space-sm); }
+.insight-item { display: flex; align-items: flex-start; gap: var(--space-sm); padding: var(--space-sm) var(--space-md); border-radius: var(--radius-sm); font-size: 13px; line-height: 1.5; }
+.insight-warn { background: rgba(245,158,11,.08); border: 1px solid rgba(245,158,11,.25); color: #92400e; }
+.insight-good { background: rgba(16,185,129,.08); border: 1px solid rgba(16,185,129,.25); color: #065f46; }
+.insight-info { background: rgba(59,130,246,.08); border: 1px solid rgba(59,130,246,.25); color: #1e40af; }
+.insight-icon { flex-shrink: 0; font-size: 14px; }
+.insight-text { flex: 1; }
+.header-help { display: inline-block; width: 14px; height: 14px; line-height: 14px; text-align: center; font-size: 10px; font-weight: 700; color: var(--color-text-tertiary); border: 1px solid var(--color-border); border-radius: 50%; margin-left: 4px; cursor: help; }
+.metric-help-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-sm); margin-bottom: var(--space-sm); }
+.metric-help-item { font-size: 12px; line-height: 1.5; color: var(--color-text-secondary); }
+.metric-help-item b { color: var(--color-text); font-weight: 600; }
+.metric-ref-ranges { display: flex; align-items: center; gap: var(--space-md); flex-wrap: wrap; padding-top: var(--space-sm); border-top: 1px solid var(--color-border-light); font-size: 12px; }
+.metric-ref-title { color: var(--color-text-tertiary); font-weight: 500; white-space: nowrap; }
+.metric-ref { display: flex; align-items: center; gap: var(--space-xs); white-space: nowrap; }
+.metric-ref-label { color: var(--color-text-secondary); font-weight: 500; margin-right: 4px; }
+.metric-ref-good { color: var(--color-success); }
+.metric-ref-mid { color: var(--color-text-tertiary); }
+.metric-ref-bad { color: var(--color-danger); }
+.conv-error-text { font-size: 12px; color: var(--color-danger); cursor: help; }
 </style>
 </head>
 <body>
@@ -248,13 +279,18 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
                 <span class="l">温度(0=确定)</span>
                 <el-input-number v-model="runForm.temperature" :min="0" :max="2" :step="0.1" size="small" controls-position="right" style="width:100%" />
               </div>
-              <div class="field">
-                <span class="l">Prompt 集(空=全部)</span>
-                <el-select v-model="runForm.prompt_ids" multiple placeholder="全部(含自定义)" style="width:100%" size="small">
-                  <el-option v-for="p in prompts" :key="p.id" :label="p.label+' ('+bucketLabel(p.bucket)+')'" :value="p.id" />
-                </el-select>
-              </div>
-            </div>
+              <div class="field">
+                <span class="l">Prompt 集(空=全部)</span>
+                <el-select v-model="runForm.prompt_ids" multiple placeholder="全部(含自定义)" style="width:100%" size="small">
+                  <el-option v-for="p in prompts" :key="p.id" :label="p.label+' ('+bucketLabel(p.bucket)+')'" :value="p.id" />
+                </el-select>
+              </div>
+              <div class="field">
+                <span class="l">混合 Prompt</span>
+                <el-switch v-model="runForm.mix_prompts" active-text="开启" inactive-text="关闭" />
+                <div class="hint">开启后每个并发 worker 轮询取不同 prompt，更接近真实负载</div>
+              </div>
+            </div>
             <div class="toolbar" style="margin-top: var(--space-md)">
               <el-button type="primary" :disabled="running" @click="startRun">开始</el-button>
               <el-button type="danger" plain :disabled="!running" @click="stopRun">停止</el-button>
@@ -389,58 +425,138 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
                   </template>
                 </el-table-column>
               </el-table>
-            </div>
-            <!-- 详细表格 + 对话查看 -->
-            <div class="card">
-              <div class="section-title">详细数据 (点击行展开查看对话内容)</div>
-              <el-table :data="resultCells" border size="small" style="width:100%" row-key="rowKey" @expand-change="onExpand">
-                <el-table-column type="expand">
-                  <template #default="{ row }">
-                    <div class="conv-view">
-                      <div class="conv-section">
-                        <div class="conv-label">Prompt ({{ row.prompt_label }})</div>
-                        <div class="conv-text">{{ promptText(row.prompt_id) }}</div>
-                      </div>
-                      <div class="conv-section">
-                        <div class="conv-label">模型回复 (首个成功请求)</div>
-                        <div class="conv-text">{{ firstOutput(row) }}</div>
-                      </div>
-                      <div class="conv-meta" v-if="firstRequest(row)">
-                        <span>TTFT: {{ fmt(firstRequest(row).ttft) }}s</span>
-                        <span>tokens: {{ firstRequest(row).output_tokens }}</span>
-                        <span>tok/s: {{ fmt(firstRequest(row).tokens_per_second) }}</span>
-                        <span>来源: {{ firstRequest(row).token_source }}</span>
-                      </div>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
-                <el-table-column prop="prompt_label" label="Prompt" min-width="100" show-overflow-tooltip />
-                <el-table-column prop="concurrency" label="并发" width="55" />
-                <el-table-column label="首字 p50 (秒)"><template #default="{row}">{{ fmt(row.aggregates.ttft_p50) }}</template></el-table-column>
-                <el-table-column label="速度 tok/s"><template #default="{row}">{{ fmt(row.aggregates.tokens_per_second_mean) }}</template></el-table-column>
-                <el-table-column label="端到端 p50 (秒)"><template #default="{row}">{{ fmt(row.aggregates.e2e_p50) }}</template></el-table-column>
-                <el-table-column label="错误率" width="80"><template #default="{row}">
-                  <el-tag size="small" :type="row.aggregates.high_error?'danger':(row.aggregates.error_rate>0?'warning':'success')">{{(row.aggregates.error_rate*100).toFixed(0)}}%</el-tag>
-                </template></el-table-column>
-              </el-table>
-            </div>
-            <!-- 指标说明 -->
-            <div class="card">
-              <el-collapse>
-                <el-collapse-item title="指标说明(点击展开)" name="1">
-                  <div class="metric-help">
-                    <p><b>首字延迟 (TTFT)</b>:从发出请求到收到第一个 token 的时间。越低 = 模型"开口"越快。p50 = 一半请求比这快,p90 = 90% 的请求比这快。</p>
-                    <p><b>输出速度 (tokens/s)</b>:每秒输出多少个 token。越高 = 生成越快。注意:短回复的数值波动大,长回复更稳定。</p>
-                    <p><b>端到端延迟 (E2E)</b>:从发请求到全部收完的总时间 = 首字延迟 + 生成时间。</p>
-                    <p><b>错误率</b>:失败请求(超时/报错)占比。>50% 标红,说明该模型在该并发下已崩溃。</p>
-                    <p class="tertiary">提示:若基准速度比日常使用感觉快,通常因为基准用短 prompt 直连 API,而日常使用有长输入 + 网关 + 产品 UI 缓冲。</p>
-                  </div>
-                </el-collapse-item>
-              </el-collapse>
-            </div>
-          </template>
-          <div v-else class="empty">在上方选择一次运行查看结果。</div>
+            </div>
+            <!-- 指标说明（始终可见） -->
+            <div class="card">
+              <div class="section-title">指标说明</div>
+              <div class="metric-help-grid">
+                <div class="metric-help-item">
+                  <b>首字延迟 (TTFT)</b>: 从发请求到收到第一个 token 的时间。p50 = 一半请求比这快。越低越好。
+                </div>
+                <div class="metric-help-item">
+                  <b>输出速度 (tok/s)</b>: 每秒输出 token 数。越高越快。短回复波动大，长回复更稳定。
+                </div>
+                <div class="metric-help-item">
+                  <b>端到端延迟 (E2E)</b>: 总延迟 = 首字等待 + 生成时间。p50 = 一半请求比这快。
+                </div>
+                <div class="metric-help-item">
+                  <b>错误率</b>: 失败请求占比。>50% 标红，说明服务已崩溃。
+                </div>
+              </div>
+              <div class="metric-ref-ranges">
+                <span class="metric-ref-title">参考范围：</span>
+                <span class="metric-ref"><span class="metric-ref-label">首字 p50</span> <span class="metric-ref-good">&lt;1s 快</span> <span class="metric-ref-mid">1-5s 正常</span> <span class="metric-ref-bad">&gt;10s 慢</span></span>
+                <span class="metric-ref"><span class="metric-ref-label">tok/s</span> <span class="metric-ref-good">&gt;2000 快</span> <span class="metric-ref-mid">500-2000 正常</span> <span class="metric-ref-bad">&lt;500 慢</span></span>
+                <span class="metric-ref"><span class="metric-ref-label">错误率</span> <span class="metric-ref-good">0% 好</span> <span class="metric-ref-mid">&lt;5% 可接受</span> <span class="metric-ref-bad">&gt;10% 差</span></span>
+              </div>
+            </div>
+            <!-- 性能洞察 -->
+            <div class="card" v-if="performanceInsights.length">
+              <div class="section-title">性能洞察</div>
+              <div class="insight-list">
+                <div v-for="(insight, idx) in performanceInsights" :key="idx" class="insight-item" :class="'insight-' + insight.type">
+                  <span class="insight-icon">{{ insight.type === 'warn' ? '⚠' : insight.type === 'good' ? '✓' : 'ℹ' }}</span>
+                  <span class="insight-text">{{ insight.text }}</span>
+                </div>
+              </div>
+            </div>
+            <!-- 详细数据（按并发分组） -->
+            <div class="card">
+              <div class="section-title">详细数据（按并发档分组，点击行展开查看对话内容）</div>
+              <div v-for="conc in detailConcGroups" :key="conc.concurrency" class="conc-group">
+                <div class="conc-group-header">
+                  <span class="conc-group-badge">并发 {{ conc.concurrency }}</span>
+                  <span class="conc-group-summary">
+                    平均首字 <b>{{ fmt(conc.avgTtft) }}s</b><span v-if="conc.deltaTtft != null" class="conc-delta" :class="conc.deltaTtft > 0 ? 'conc-delta-worse' : 'conc-delta-better'">{{ conc.deltaTtft > 0 ? '↑' : '↓' }}{{ Math.abs(conc.deltaTtft).toFixed(0) }}%</span> ·
+                    平均速度 <b>{{ fmt(conc.avgTps) }} tok/s</b><span v-if="conc.deltaTps != null" class="conc-delta" :class="conc.deltaTps > 0 ? 'conc-delta-better' : 'conc-delta-worse'">{{ conc.deltaTps > 0 ? '↑' : '↓' }}{{ Math.abs(conc.deltaTps).toFixed(0) }}%</span> ·
+                    平均端到端 <b>{{ fmt(conc.avgE2e) }}s</b> ·
+                    错误率 <b>{{ (conc.avgErr*100).toFixed(0) }}%</b>
+                  </span>
+                </div>
+                <el-table :data="conc.cells" border size="small" style="width:100%" row-key="rowKey" @expand-change="onExpand">
+                  <el-table-column type="expand">
+                    <template #default="{ row }">
+                      <div class="conv-view">
+                        <div class="conv-section">
+                          <div class="conv-label">Prompt ({{ row.prompt_label }})</div>
+                          <div class="conv-text">{{ promptText(row.prompt_id) }}</div>
+                        </div>
+                        <div class="conv-section">
+                          <div class="conv-label">全部请求明细（共 {{ row.requests.length }} 条）</div>
+                          <el-table :data="row.requests" border size="small" style="width:100%" max-height="400">
+                            <el-table-column label="#" width="40" type="index" :index="i => i + 1" />
+                            <el-table-column label="状态" width="65">
+                              <template #default="{row: r}">
+                                <el-tag size="small" :type="r.ok ? 'success' : (r.timed_out ? 'warning' : 'danger')">{{ r.ok ? '✓' : (r.timed_out ? '超时' : '失败') }}</el-tag>
+                              </template>
+                            </el-table-column>
+                            <el-table-column label="TTFT (s)" width="80">
+                              <template #default="{row: r}">{{ r.ttft != null ? r.ttft.toFixed(3) : '-' }}</template>
+                            </el-table-column>
+                            <el-table-column label="tok/s" width="75">
+                              <template #default="{row: r}">{{ r.tokens_per_second != null ? r.tokens_per_second.toFixed(1) : '-' }}</template>
+                            </el-table-column>
+                            <el-table-column label="E2E (s)" width="80">
+                              <template #default="{row: r}">{{ r.e2e != null ? r.e2e.toFixed(3) : '-' }}</template>
+                            </el-table-column>
+                            <el-table-column label="tokens" width="65">
+                              <template #default="{row: r}">{{ r.output_tokens || '-' }}</template>
+                            </el-table-column>
+                            <el-table-column label="来源" width="65">
+                              <template #default="{row: r}">{{ r.token_source || '-' }}</template>
+                            </el-table-column>
+                            <el-table-column label="操作" width="80">
+                              <template #default="{row: r}">
+                                <el-button v-if="r.ok && r.output_text" size="small" type="primary" link @click="showRequestDialog(r, row.prompt_label)">查看对话</el-button>
+                                <span v-else-if="r.error" class="conv-error-text" :title="r.error">错误</span>
+                              </template>
+                            </el-table-column>
+                          </el-table>
+                        </div>
+                      </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column prop="target" label="目标" min-width="100" show-overflow-tooltip />
+                  <el-table-column prop="prompt_label" label="Prompt" min-width="100" show-overflow-tooltip />
+                  <el-table-column min-width="110">
+                    <template #header>
+                      <el-tooltip content="从发请求到收到第一个 token 的时间。p50 = 一半请求比这快。越低越好。" placement="top">
+                        <span>首字 p50 (秒) <span class="header-help">?</span></span>
+                      </el-tooltip>
+                    </template>
+                    <template #default="{row}"><span :class="row.aggregates.ttft_p50_cls || ''">{{ fmt(row.aggregates.ttft_p50) }}</span></template>
+                  </el-table-column>
+                  <el-table-column min-width="110">
+                    <template #header>
+                      <el-tooltip content="每秒输出 token 数。越高 = 生成越快。短回复波动大，长回复更稳定。" placement="top">
+                        <span>速度 tok/s <span class="header-help">?</span></span>
+                      </el-tooltip>
+                    </template>
+                    <template #default="{row}"><span :class="row.aggregates.tokens_per_second_mean_cls || ''">{{ fmt(row.aggregates.tokens_per_second_mean) }}</span></template>
+                  </el-table-column>
+                  <el-table-column min-width="120">
+                    <template #header>
+                      <el-tooltip content="总延迟 = 首字等待 + 生成时间。p50 = 一半请求比这快。越低越好。" placement="top">
+                        <span>端到端 p50 (秒) <span class="header-help">?</span></span>
+                      </el-tooltip>
+                    </template>
+                    <template #default="{row}"><span :class="row.aggregates.e2e_p50_cls || ''">{{ fmt(row.aggregates.e2e_p50) }}</span></template>
+                  </el-table-column>
+                  <el-table-column width="100">
+                    <template #header>
+                      <el-tooltip content="失败请求（超时/报错）占比。>50% 说明服务已崩溃。" placement="top">
+                        <span>错误率 <span class="header-help">?</span></span>
+                      </el-tooltip>
+                    </template>
+                    <template #default="{row}">
+                      <el-tag size="small" :type="row.aggregates.high_error?'danger':(row.aggregates.error_rate>0?'warning':'success')">{{(row.aggregates.error_rate*100).toFixed(0)}}%</el-tag>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </div>
+            </div>
+          </template>
+          <div v-else class="empty">在上方选择一次运行查看结果。</div>
         </div>
 
         <!-- ============ 历史 ============ -->
@@ -647,8 +763,29 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
       <el-button type="primary" plain @click="promptDlgVisible=false">取消</el-button>
       <el-button type="primary" @click="savePromptDialog">确定</el-button>
     </template>
-  </el-dialog>
-</div>
+  </el-dialog>
+
+  <!-- 请求对话查看弹窗 -->
+  <el-dialog v-model="requestDlgVisible" title="对话详情" width="680px" align-center>
+    <div class="conv-view" v-if="requestDlgData">
+      <div class="conv-section">
+        <div class="conv-label">Prompt ({{ requestDlgData.promptLabel }})</div>
+        <div class="conv-text">{{ requestDlgData.promptText }}</div>
+      </div>
+      <div class="conv-section">
+        <div class="conv-label">模型回复</div>
+        <div class="conv-text">{{ requestDlgData.outputText }}</div>
+      </div>
+      <div class="conv-meta">
+        <span>TTFT: {{ fmt(requestDlgData.ttft) }}s</span>
+        <span>tokens: {{ requestDlgData.output_tokens }}</span>
+        <span>tok/s: {{ fmt(requestDlgData.tokens_per_second) }}</span>
+        <span>来源: {{ requestDlgData.token_source }}</span>
+        <span v-if="requestDlgData.quality_score != null">质量分: {{ (requestDlgData.quality_score * 100).toFixed(0) }}%</span>
+      </div>
+    </div>
+  </el-dialog>
+</div>
 
 <script src="https://unpkg.com/vue@3.4.31/dist/vue.global.prod.js"></script>
 <script src="https://unpkg.com/element-plus@2.7.6/dist/index.full.min.js"></script>
@@ -688,8 +825,10 @@ const app = createApp({
     const prompts = ref([]);
     const targetsDirty = ref(false);
     const promptsDirty = ref(false);
-    const promptDlgVisible = ref(false);
-    const promptEditing = reactive({ label:"", bucket:"medium", text:"", keywords_text:"", min_output_tokens: null, _idx:-1 });
+    const promptDlgVisible = ref(false);
+    const promptEditing = reactive({ label:"", bucket:"medium", text:"", keywords_text:"", min_output_tokens: null, _idx:-1 });
+    const requestDlgVisible = ref(false);
+    const requestDlgData = ref(null);
     let evtSource = null;
     const chartThroughput = ref(null);
     const chartTtft = ref(null);
@@ -701,11 +840,106 @@ const app = createApp({
       return [...new Set(resultRun.value.cells.map(c => c.concurrency))].sort((a,b)=>a-b);
     });
     // Flatten cells for the detail table, with a stable row key.
-    const resultCells = computed(() => {
-      if (!resultRun.value) return [];
-      return resultRun.value.cells.map(c => ({ ...c, rowKey: c.target + "/" + c.prompt_id + "/" + c.concurrency }));
-    });
-    // Quick comparison cards: for each metric, find the best model at the selected concurrency.
+    const resultCells = computed(() => {
+      if (!resultRun.value) return [];
+      return resultRun.value.cells.map(c => ({ ...c, rowKey: c.target + "/" + c.prompt_id + "/" + c.concurrency }));
+    });
+    // Group cells by concurrency for the detailed data view.
+    const detailConcGroups = computed(() => {
+      if (!resultRun.value) return [];
+      const cells = resultRun.value.cells;
+      const concs = [...new Set(cells.map(c => c.concurrency))].sort((a,b)=>a-b);
+      let prevTtft = null, prevTps = null;
+      return concs.map(conc => {
+        const group = cells.filter(c => c.concurrency === conc).map(c => ({ ...c, rowKey: c.target + "/" + c.prompt_id + "/" + c.concurrency }));
+        const avg = (fn) => {
+          const vals = group.map(c => c.aggregates[fn]).filter(v => v != null);
+          return vals.length ? vals.reduce((a,b)=>a+b,0) / vals.length : null;
+        };
+        // Assign best/worst color classes within this group.
+        const assign = (fn, lowerBetter) => {
+          const vals = group.map(c => c.aggregates[fn]).filter(v => v != null);
+          if (!vals.length) return;
+          const best = lowerBetter ? Math.min(...vals) : Math.max(...vals);
+          const worst = lowerBetter ? Math.max(...vals) : Math.min(...vals);
+          for (const c of group) {
+            const v = c.aggregates[fn];
+            if (v == null) continue;
+            c.aggregates[fn + "_cls"] = v === best ? "cell-best" : (v === worst ? "cell-worst" : "");
+          }
+        };
+        assign("ttft_p50", true);
+        assign("tokens_per_second_mean", false);
+        assign("e2e_p50", true);
+        assign("error_rate", true);
+        const avgTtft = avg("ttft_p50");
+        const avgTps = avg("tokens_per_second_mean");
+        // Compute delta from previous group
+        const deltaTtft = (prevTtft != null && avgTtft != null && prevTtft !== 0) ? ((avgTtft - prevTtft) / prevTtft * 100) : null;
+        const deltaTps = (prevTps != null && avgTps != null && prevTps !== 0) ? ((avgTps - prevTps) / prevTps * 100) : null;
+        prevTtft = avgTtft;
+        prevTps = avgTps;
+        return {
+          concurrency: conc,
+          cells: group,
+          avgTtft,
+          avgTps,
+          avgE2e: avg("e2e_p50"),
+          avgErr: avg("error_rate"),
+          deltaTtft,
+          deltaTps,
+        };
+      });
+    });
+    // Performance insights: auto-analyze the data and generate human-readable observations.
+    const performanceInsights = computed(() => {
+      if (!resultRun.value) return [];
+      const groups = detailConcGroups.value;
+      if (groups.length < 2) return [];
+      const insights = [];
+      const concs = groups.map(g => g.concurrency);
+      const ttfts = groups.map(g => g.avgTtft).filter(v => v != null);
+      const tps = groups.map(g => g.avgTps).filter(v => v != null);
+      const errs = groups.map(g => g.avgErr).filter(v => v != null);
+      // TTFT trend
+      if (ttfts.length >= 2) {
+        const first = ttfts[0], last = ttfts[ttfts.length - 1];
+        const pct = ((last - first) / first * 100).toFixed(0);
+        if (last > first * 1.5) {
+          insights.push({ type: 'warn', text: `首字延迟随并发从 ${fmt(first)}s 增长到 ${fmt(last)}s（+${pct}%），排队等待是主要瓶颈。` });
+        } else if (last < first * 0.8) {
+          insights.push({ type: 'good', text: `首字延迟稳定（${fmt(first)}s → ${fmt(last)}s），并发对首字影响小。` });
+        }
+      }
+      // Throughput trend
+      if (tps.length >= 2) {
+        const first = tps[0], last = tps[tps.length - 1];
+        const minTps = Math.min(...tps);
+        const maxTps = Math.max(...tps);
+        if (maxTps > minTps * 3) {
+          insights.push({ type: 'warn', text: `单请求速度从 ${fmt(first)} tok/s 降到 ${fmt(last)} tok/s，吞吐波动大（${fmt(minTps)}~${fmt(maxTps)}）。` });
+        } else {
+          insights.push({ type: 'good', text: `单请求速度稳定（${fmt(first)}~${fmt(last)} tok/s）。` });
+        }
+      }
+      // Error rate
+      const maxErr = errs.length ? Math.max(...errs) : 0;
+      if (maxErr > 0.1) {
+        insights.push({ type: 'warn', text: `最高错误率 ${(maxErr*100).toFixed(0)}%，服务在高并发下不稳定。` });
+      } else if (maxErr === 0) {
+        insights.push({ type: 'good', text: `所有并发档错误率均为 0%，服务稳定。` });
+      }
+      // Aggregate throughput at high concurrency
+      const highConc = groups[groups.length - 1];
+      const peakCells = resultRun.value.cells.filter(c => c.concurrency === highConc.concurrency);
+      const aggTps = peakCells.map(c => c.aggregates.aggregate_tokens_per_second).filter(v => v != null);
+      if (aggTps.length) {
+        const peak = Math.max(...aggTps);
+        insights.push({ type: 'info', text: `并发 ${highConc.concurrency} 时聚合吞吐峰值 ${fmt(peak)} tok/s。` });
+      }
+      return insights;
+    });
+    // Quick comparison cards: for each metric, find the best model at the selected concurrency.
     const quickCards = computed(() => {
       if (!resultRun.value) return [];
       const cc = chartConcurrency.value;
@@ -865,10 +1099,11 @@ const app = createApp({
       });
     };
 
-const runForm = reactive({
-      target_names: [], concurrency_text: "1,2,4,8,16,32",
-      samples: 20, warmup: 2, timeout: 120, temperature: 0.0, prompt_ids: [],
-    });
+const runForm = reactive({
+      target_names: [], concurrency_text: "1,2,4,8,16,32",
+      samples: 20, warmup: 2, timeout: 120, temperature: 0.0, prompt_ids: [],
+      mix_prompts: false,
+    });
 
     // ---- run compare ----
     const COMPARE_METRICS = [
@@ -1055,11 +1290,12 @@ const runForm = reactive({
       liveCells.value = []; progress.value = 0;
       const clevels = runForm.concurrency_text.split(",").map(s=>parseInt(s.trim())).filter(n=>!isNaN(n));
       if (!clevels.length) { ElementPlus.ElMessage.warning("并发档位无效"); return; }
-      const body = {
-        concurrency_levels: clevels, samples: runForm.samples, warmup: runForm.warmup,
-        timeout: runForm.timeout, temperature: runForm.temperature,
-        target_names: runForm.target_names, prompt_ids: runForm.prompt_ids,
-      };
+      const body = {
+        concurrency_levels: clevels, samples: runForm.samples, warmup: runForm.warmup,
+        timeout: runForm.timeout, temperature: runForm.temperature,
+        target_names: runForm.target_names, prompt_ids: runForm.prompt_ids,
+        mix_prompts: runForm.mix_prompts,
+      };
       try {
         const d = await api("/api/run/start", { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
         runId.value = d.run_id; running.value = true;
@@ -1264,8 +1500,21 @@ const runForm = reactive({
       if (r.output_text) return r.output_text;
       return r.ok ? "(空回复)" : "(请求失败: " + (r.error || "") + ")";
     }
-    function onExpand(row, expanded) { /* no-op, data already in row */ }
-    function cellClass(row, key) {
+    function onExpand(row, expanded) { /* no-op, data already in row */ }
+    function showRequestDialog(req, promptLabel) {
+      requestDlgData.value = {
+        promptLabel,
+        promptText: promptText(req.prompt_id),
+        outputText: req.output_text || '(无输出)',
+        ttft: req.ttft,
+        output_tokens: req.output_tokens,
+        tokens_per_second: req.tokens_per_second,
+        token_source: req.token_source,
+        quality_score: req.quality_score,
+      };
+      requestDlgVisible.value = true;
+    }
+    function cellClass(row, key) {
       const clsKey = key === "err" ? "err" : key + "_cls";
       const val = row[clsKey];
       if (val === "best") return "cell-best";
@@ -1301,11 +1550,12 @@ const runForm = reactive({
     return {
       page, title, targets, history, resultRun, resultsRunId,
       liveCells, progress, running, runId, currentRun, historyPolling,
-      prompts, promptDlgVisible, promptEditing, targetsDirty, promptsDirty,
+      prompts, promptDlgVisible, promptEditing, targetsDirty, promptsDirty,
+      requestDlgVisible, requestDlgData,
       runForm, builtinPrompts: BUILTIN_PROMPTS,
       dlgVisible, editing, testingId, testingDialog, testResult,
       chartThroughput, chartTtft, chartE2e, chartConcurrency, chartConcurrencyOptions,
-      resultCells, quickCards, comparisonTable,
+      resultCells, detailConcGroups, performanceInsights, quickCards, comparisonTable,
       COMPARE_METRICS, compareBaseId, compareOtherId, compareData,
       compareTargetFilter, compareConcurrencyFilter,
       compareTargetOptions, compareConcurrencyOptions, compareRowsFiltered,
@@ -1315,7 +1565,7 @@ const runForm = reactive({
       testTargetRow, testTargetDialog,
       refreshPrompts, openPromptDialog, savePromptDialog, removePrompt, savePrompts, bucketLabel,
       startRun, stopRun, loadResultRun, viewRun, loadHistory, renderCharts,
-      promptText, firstRequest, firstOutput, onExpand, cellClass,
+      promptText, firstRequest, firstOutput, onExpand, showRequestDialog, cellClass,
       fmt, fmtTime, fmtTimeShort, runLabel, statusType, statusLabel, progressStatus,
     
       trendMetric,

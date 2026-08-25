@@ -104,6 +104,7 @@ class RunConfig:
     prompt_ids: list[str] = field(default_factory=list)     # empty -> all built-in
     prompts_file: str = ""          # optional override file
     include_usage: bool = True      # stream_options.include_usage
+    mix_prompts: bool = False       # mix prompts within each cell (more realistic)
 
     def to_dict(self) -> dict[str, Any]:
         return asdict(self)

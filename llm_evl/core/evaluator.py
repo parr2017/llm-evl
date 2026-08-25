@@ -92,9 +92,12 @@ class Evaluator:
         and run_result.status reflects the outcome.
         """
         run_result = self.run_result
-        total_cells = (
-            len(self.targets) * len(self._prompts) * len(self.config.concurrency_levels)
-        )
+        if self.config.mix_prompts:
+            total_cells = len(self.targets) * len(self.config.concurrency_levels)
+        else:
+            total_cells = (
+                len(self.targets) * len(self._prompts) * len(self.config.concurrency_levels)
+            )
         done_cells = 0
         try:
             async with httpx.AsyncClient() as client:
@@ -104,14 +107,13 @@ class Evaluator:
                     temp = self.config.temperature
                     if target.temperature is not None:
                         temp = target.temperature
-                    for prompt in self._prompts:
-                        if self._aborted:
-                            break
+                    if self.config.mix_prompts:
+                        # Mixed mode: one cell per (target × concurrency), prompts rotated across workers.
                         for c in self.config.concurrency_levels:
                             if self._aborted:
                                 break
-                            cell = await self._run_cell(
-                                client, target, prompt, c, temp
+                            cell = await self._run_cell_mixed(
+                                client, target, self._prompts, c, temp
                             )
                             run_result.cells.append(cell)
                             done_cells += 1
@@ -119,8 +121,27 @@ class Evaluator:
                                 type="cell_done",
                                 cell=cell.to_dict(),
                                 progress=done_cells / total_cells if total_cells else 1.0,
-                                message=f"{target.name} / {prompt.label} / c={c} done",
+                                message=f"{target.name} / 混合 / c={c} done",
                             )
+                    else:
+                        # Normal mode: one cell per (target × prompt × concurrency).
+                        for prompt in self._prompts:
+                            if self._aborted:
+                                break
+                            for c in self.config.concurrency_levels:
+                                if self._aborted:
+                                    break
+                                cell = await self._run_cell(
+                                    client, target, prompt, c, temp
+                                )
+                                run_result.cells.append(cell)
+                                done_cells += 1
+                                yield ProgressEvent(
+                                    type="cell_done",
+                                    cell=cell.to_dict(),
+                                    progress=done_cells / total_cells if total_cells else 1.0,
+                                    message=f"{target.name} / {prompt.label} / c={c} done",
+                                )
             run_result.status = (
                 RunStatus.ABORTED.value if self._aborted else RunStatus.COMPLETED.value
             )
@@ -192,6 +213,71 @@ class Evaluator:
             return results
 
         workers = [asyncio.create_task(worker()) for _ in range(concurrency)]
+        worker_results = await asyncio.gather(*workers, return_exceptions=True)
+        for wr in worker_results:
+            if isinstance(wr, BaseException):
+                logger.warning("worker error: %s", wr)
+                continue
+            cell.requests.extend(wr)
+
+        cell.aggregates = aggregate_requests(cell.requests, concurrency)
+        return cell
+
+    async def _run_cell_mixed(self, client, target, prompts, concurrency, temperature) -> CellResult:
+        """Run a cell with mixed prompts: each worker rotates through the prompt pool."""
+        cell = CellResult(
+            target=target.name,
+            prompt_id="mixed",
+            prompt_label="混合",
+            bucket="mixed",
+            concurrency=concurrency,
+        )
+
+        # Warmup (discarded). Rotate prompts during warmup too.
+        for i in range(self.config.warmup):
+            prompt = prompts[i % len(prompts)]
+            try:
+                await stream_request(
+                    client, target, prompt.text,
+                    temperature=temperature,
+                    timeout=self.config.timeout,
+                    include_usage=self.config.include_usage,
+                    prompt_id=prompt.id,
+                    concurrency=concurrency,
+                    expected_keywords=prompt.expected_keywords,
+                    min_output_tokens=prompt.min_output_tokens,
+                )
+            except Exception:
+                logger.debug("warmup error (ignored)")
+
+        n = self.config.samples
+        queue: asyncio.Queue[int] = asyncio.Queue()
+        for i in range(n):
+            queue.put_nowait(i)
+
+        async def worker(worker_id: int):
+            results: list = []
+            while not self._aborted:
+                try:
+                    slot = queue.get_nowait()
+                except asyncio.QueueEmpty:
+                    return results
+                # Round-robin: worker_i picks prompt[slot % len(prompts)]
+                prompt = prompts[slot % len(prompts)]
+                rr = await stream_request(
+                    client, target, prompt.text,
+                    temperature=temperature,
+                    timeout=self.config.timeout,
+                    include_usage=self.config.include_usage,
+                    prompt_id=prompt.id,
+                    concurrency=concurrency,
+                    expected_keywords=prompt.expected_keywords,
+                    min_output_tokens=prompt.min_output_tokens,
+                )
+                results.append(rr)
+            return results
+
+        workers = [asyncio.create_task(worker(i)) for i in range(concurrency)]
         worker_results = await asyncio.gather(*workers, return_exceptions=True)
         for wr in worker_results:
             if isinstance(wr, BaseException):

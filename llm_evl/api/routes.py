@@ -27,6 +27,7 @@ class StartRunRequest(BaseModel):
     prompt_ids: list[str] | None = None
     prompts_file: str | None = None
     include_usage: bool | None = None
+    mix_prompts: bool | None = None
 
 
 class SaveTargetsRequest(BaseModel):
@@ -106,6 +107,7 @@ async def start_run(req: StartRunRequest):
         prompt_ids=req.prompt_ids or [],
         prompts_file=req.prompts_file or "",
         include_usage=req.include_usage if req.include_usage is not None else defaults.include_usage,
+        mix_prompts=req.mix_prompts if req.mix_prompts is not None else defaults.mix_prompts,
     )
     try:
         run_id = await manager.start(config)

@@ -83,9 +83,11 @@ def list_targets(config_path: str):
 @click.option("--prompts", "prompt_ids", default="", help="Comma-separated prompt ids.")
 @click.option("--prompts-file", default="", help="Override prompt set from file.")
 @click.option("--no-usage", is_flag=True, help="Disable stream_options.include_usage.")
+@click.option("--mix-prompts", is_flag=True, help="Mix prompts within each cell (more realistic).")
 def run(config_path: str, output: str, concurrency: str, samples: int,
         warmup: int, timeout: float, temperature: float,
-        target_names: str, prompt_ids: str, prompts_file: str, no_usage: bool):
+        target_names: str, prompt_ids: str, prompts_file: str, no_usage: bool,
+        mix_prompts: bool):
     """Run the benchmark matrix and write a JSON result file."""
     try:
         targets = load_targets(config_path)
@@ -108,6 +110,7 @@ def run(config_path: str, output: str, concurrency: str, samples: int,
         prompt_ids=pids,
         prompts_file=prompts_file,
         include_usage=not no_usage,
+        mix_prompts=mix_prompts,
     )
 
     evaluator = Evaluator(config, targets)
