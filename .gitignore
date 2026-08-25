@@ -26,3 +26,4 @@ venv/
 logs/
 serve.log
 mock.log
+*.log

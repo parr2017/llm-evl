@@ -169,11 +169,17 @@ body { background: var(--color-bg); font-family: var(--font-family); color: var(
                 <el-button type="primary" size="small" @click="openTargetDialog(null)">新增目标</el-button>
               </div>
             </div>
-            <el-table :data="targets" border style="width:100%" size="small"
-              empty-text="暂无目标,点击右上角「新增目标」添加">
-              <el-table-column prop="name" label="名称" min-width="100" show-overflow-tooltip />
-              <el-table-column prop="base_url" label="接口地址" min-width="200" show-overflow-tooltip />
-              <el-table-column prop="model" label="模型" min-width="130" show-overflow-tooltip />
+            <el-table :data="targets" border style="width:100%" size="small"
+              empty-text="暂无目标,点击右上角「新增目标」添加">
+              <el-table-column label="名称" min-width="100" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.name }}</template>
+              </el-table-column>
+              <el-table-column label="接口地址" min-width="200" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.base_url }}</template>
+              </el-table-column>
+              <el-table-column label="模型" min-width="130" show-overflow-tooltip>
+                <template #default="{ row }">{{ row.model }}</template>
+              </el-table-column>
               <el-table-column label="密钥" width="110">
                 <template #default="{ row }">
                   <el-tag size="small" :type="row.has_api_key ? 'warning' : (row.api_key_env ? 'info' : 'danger')">
