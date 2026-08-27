@@ -11,6 +11,7 @@ from __future__ import annotations
 import json
 import logging
 import time
+from collections.abc import Awaitable, Callable
 
 import httpx
 
@@ -198,3 +199,122 @@ def _score_quality(result: RequestResult, text: str, n_tokens: int,
         result.quality_score = keyword_ratio
     else:
         result.quality_score = length_ratio
+
+
+async def stream_chat(
+    client: httpx.AsyncClient,
+    target: Target,
+    messages: list[dict],
+    *,
+    temperature: float,
+    timeout: float,
+    on_token: Callable[[str], Awaitable[None]] | None = None,
+) -> RequestResult:
+    """Send a streaming chat completion with multi-turn messages.
+
+    Calls on_token(text) for each content delta as it arrives.
+    Returns a RequestResult with TTFT, tok/s, e2e metrics.
+    """
+    url = target.base_url.rstrip("/") + "/chat/completions"
+    temp = target.temperature if target.temperature is not None else temperature
+    payload: dict = {
+        "model": target.model,
+        "messages": messages,
+        "stream": True,
+        "temperature": temp,
+        "stream_options": {"include_usage": True},
+    }
+    headers = {
+        "Authorization": f"Bearer {target.resolved_api_key()}",
+        "Content-Type": "application/json",
+        "Accept": "text/event-stream",
+    }
+
+    result = RequestResult(target=target.name, prompt_id="chat", concurrency=1)
+    full_text_parts: list[str] = []
+    usage: dict | None = None
+    t0 = result.started_at = time.perf_counter()
+    first_token_time: float | None = None
+    last_token_time: float | None = None
+
+    try:
+        async with client.stream(
+            "POST", url, json=payload, headers=headers, timeout=timeout
+        ) as resp:
+            if resp.status_code >= 400:
+                body = await resp.aread()
+                body_text = body[:300].decode("utf-8", "replace").strip()
+                result.error = f"HTTP {resp.status_code} from {target.name}: {body_text}"
+                result.ok = False
+                result.e2e = time.perf_counter() - t0
+                return result
+
+            async for line in resp.aiter_lines():
+                if not line:
+                    continue
+                if line.startswith("data:"):
+                    line = line[len("data:"):].lstrip()
+                if line.strip() == "[DONE]":
+                    break
+                try:
+                    chunk = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+
+                u = chunk.get("usage")
+                if u:
+                    usage = u
+
+                choices = chunk.get("choices") or []
+                if not choices:
+                    continue
+                delta = choices[0].get("delta") or {}
+                content = delta.get("content")
+                if content:
+                    now = time.perf_counter()
+                    if first_token_time is None:
+                        first_token_time = now
+                    else:
+                        if last_token_time is not None:
+                            result.itl.append(now - last_token_time)
+                    last_token_time = now
+                    full_text_parts.append(content)
+                    if on_token:
+                        await on_token(content)
+
+    except httpx.TimeoutException:
+        result.timed_out = True
+        result.error = f"{target.name} timeout after {timeout}s"
+        result.ok = False
+        result.e2e = time.perf_counter() - t0
+        return result
+    except httpx.HTTPError as exc:
+        result.error = f"{target.name} transport error: {exc}"
+        result.ok = False
+        result.e2e = time.perf_counter() - t0
+        return result
+
+    t_end = time.perf_counter()
+    text = "".join(full_text_parts)
+
+    if first_token_time is not None:
+        result.ttft = first_token_time - t0
+        result.e2e = t_end - t0
+        result.generation_duration = (t_end - first_token_time) or 0.0
+    else:
+        result.e2e = t_end - t0
+        if not text and not usage:
+            result.error = result.error or "no content received"
+            result.ok = False
+            return result
+
+    n_tokens, source = count_tokens(text, usage)
+    result.output_tokens = n_tokens
+    result.token_source = source
+
+    if result.generation_duration and result.generation_duration > 0 and n_tokens:
+        result.tokens_per_second = n_tokens / result.generation_duration
+
+    result.output_text = text[:4000]
+    result.ok = True
+    return result

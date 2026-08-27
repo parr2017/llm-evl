@@ -2,13 +2,17 @@
 
 from __future__ import annotations
 
+import asyncio
 import json
 from pathlib import Path
 
+import httpx
 from fastapi import APIRouter, HTTPException
 from fastapi.responses import StreamingResponse, FileResponse
 from pydantic import BaseModel
 
+from ..core.client import stream_chat
+from ..core.evaluator import load_targets, filter_targets
 from ..core.models import RunConfig
 from .run_manager import manager
 
@@ -167,8 +171,90 @@ def list_runs():
 def get_run(run_id: str):
     data = manager.get_run(run_id)
     if data is None:
-        raise HTTPException(404, f"run not found: {run_id}")
-    return data
+            raise HTTPException(404, f"run not found: {run_id}")
+
+
+# ---- chat comparison ----
+
+class ChatRequest(BaseModel):
+    message: str
+    targets: list[str]
+    history: list[dict] = []  # [{role:"user",content:"..."}, {role:"assistant",content:"..."}]
+    temperature: float = 0.0
+    timeout: float = 120.0
+
+
+@router.post("/api/chat/stream")
+async def chat_stream(req: ChatRequest):
+    """Stream chat responses from multiple models concurrently via SSE."""
+    if not req.targets:
+        raise HTTPException(400, "no targets selected")
+    if not req.message.strip():
+        raise HTTPException(400, "message cannot be empty")
+
+    # Load and filter targets
+    try:
+        all_targets = load_targets(manager.config_path)
+    except Exception as exc:
+        raise HTTPException(500, f"failed to load targets: {exc}")
+
+    selected = filter_targets(all_targets, req.targets)
+    if not selected:
+        raise HTTPException(404, "no matching targets found")
+
+    # Build messages for each model
+    messages = req.history + [{"role": "user", "content": req.message}]
+
+    async def gen():
+        async with httpx.AsyncClient() as client:
+            shared_queue = asyncio.Queue()
+
+            async def run_one(target):
+                try:
+                    async def callback(text: str):
+                        await shared_queue.put({"type": "token", "target": target.name, "content": text})
+                    result = await stream_chat(
+                        client, target, messages,
+                        temperature=req.temperature,
+                        timeout=req.timeout,
+                        on_token=callback,
+                    )
+                    await shared_queue.put({
+                        "type": "done",
+                        "target": target.name,
+                        "ttft": round(result.ttft, 4) if result.ttft else None,
+                        "tok_s": round(result.tokens_per_second, 1) if result.tokens_per_second else None,
+                        "e2e": round(result.e2e, 4) if result.e2e else None,
+                        "tokens": result.output_tokens,
+                        "error": result.error or None,
+                        "ok": result.ok,
+                    })
+                except Exception as exc:
+                    await shared_queue.put({
+                        "type": "done",
+                        "target": target.name,
+                        "ttft": None, "tok_s": None, "e2e": None, "tokens": 0,
+                        "error": str(exc), "ok": False,
+                    })
+                finally:
+                    await shared_queue.put(None)
+
+            tasks = [asyncio.create_task(run_one(t)) for t in selected]
+            n_pending = len(selected)
+            while n_pending > 0:
+                evt = await shared_queue.get()
+                if evt is None:
+                    n_pending -= 1
+                else:
+                    yield f"data: {json.dumps(evt, ensure_ascii=False)}\n\n"
+            for t in tasks:
+                await t
+
+        yield f"data: {json.dumps({'type': 'all_done'})}\n\n"
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache",
+                                      "X-Accel-Buffering": "no"})
 
 
 @router.get("/api/compare")
