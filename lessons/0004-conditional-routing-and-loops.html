@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 04 — 条件路由与循环控制</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="lesson-nav">
+      <span>📚 多Agent协同开发入门</span>
+      <a href="0001-what-are-multi-agent-systems.html">← Lesson 01</a>
+      <a href="0002-langgraph-core-concepts.html">← Lesson 02</a>
+      <a href="0003-tool-calling.html">← Lesson 03</a>
+      <a href="#">GLOSSARY</a>
+      <a href="#">RESOURCES</a>
+    </nav>
+
+    <header class="lesson-header">
+      <div class="lesson-number">Lesson 04 · Phase 1</div>
+      <h1 class="lesson-title">条件路由与循环控制：让工作流拥有"判断力"</h1>
+      <div class="lesson-meta">
+        <span>⏱ 约50分钟</span>
+        <span>📝 包含2个练习</span>
+      </div>
+    </header>
+
+    <!-- Section 1 -->
+    <h2>一、为什么需要条件路由？</h2>
+
+    <p>到目前为止，我们的 Agent 工作流都是<strong>固定顺序</strong>的（Pipeline）：</p>
+    <pre><code>START → Researcher → Writer → Reviewer → Finalize → END</code></pre>
+
+    <p>但真实世界的任务往往不是线性的：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li>如果研究结果不足，要不要重新搜索？</li>
+      <li>如果文章质量合格，直接通过；不合格，打回重写？</li>
+      <li>用户的问题属于哪一类，该交给哪个专家处理？</li>
+    </ul>
+
+    <p><strong>条件路由</strong>让工作流能够根据当前状态动态决定下一步走向，这是从"死板的流水线"到"智能工作流"的关键一步。</p>
+
+    <!-- Section 2 -->
+    <h2>二、条件路由的核心：add_conditional_edges</h2>
+
+    <p>LangGraph 用 <code>add_conditional_edges()</code> 实现条件路由：</p>
+
+    <pre><code>workflow.add_conditional_edges(
+    source_node,          # 从哪个节点出发
+    routing_function,     # 路由函数：接收 state，返回字符串
+    route_map             # 字符串 → 目标节点的映射
+)</code></pre>
+
+    <p>路由函数返回的字符串必须和 <code>route_map</code> 中的 key 完全一致，框架会据此选择下一个节点。</p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 类比理解</div>
+      条件路由就像程序里的 if-elif-else，或者 switch-case。不同条件下的输出决定了流程走向。
+    </div>
+
+    <!-- Section 3 -->
+    <h2>三、完整示例：带质量审核的写作工作流</h2>
+
+    <p>构建一个 smarter 的写作流程：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li>Researcher 搜索主题</li>
+      <li>Writer 写初稿</li>
+      <li>Reviewer 评审，给出分数和意见</li>
+      <li>如果分数 &lt; 70，打回 Writer 重写（最多2次）</li>
+      <li>如果分数 ≥ 70，生成最终版本</li>
+    </ul>
+
+    <pre><code>import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict
+import operator
+
+load_dotenv()
+
+# ===== 状态定义 =====
+class GraphState(TypedDict):
+    topic: str
+    research: str
+    draft: str
+    review: str
+    score: int           # Reviewer 打的分数
+    rewrite_count: int   # 已重写次数
+    final_output: str
+
+# ===== 节点 =====
+
+def researcher_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = llm.invoke([
+        ("system", "你是研究员。简洁有力地总结主题要点（3-5条）。"),
+        ("user", f"请研究以下主题：{state['topic']}")
+    ])
+    return {"research": response.content.strip()}
+
+def writer_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    context = state.get("research", "")
+    if state.get("rewrite_count", 0) > 0:
+        context += f"\n\n【上次审稿意见】\n{state.get('review', '')}"
+    
+    prompt = f"""撰写一篇关于「{state['topic']}」的技术简介（200字左右）。
+要求结构清晰：概述 → 要点 → 总结。
+
+【参考材料】
+{context}"""
+    response = llm.invoke(prompt)
+    return {"draft": response.content.strip()}
+
+def reviewer_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = llm.invoke([
+        ("system", """你是技术审稿编辑。请对草稿进行评分（0-100分），并给出简短的修改意见。
+严格按以下 JSON 格式输出，不要有其他内容：
+{"score": 分数, "comment": "修改意见"}"""),
+        ("user", f"请评审以下文章：\n\n{state['draft']}")
+    ])
+    
+    # 解析 LLM 返回的 JSON
+    import json
+    try:
+        result = json.loads(response.content)
+        score = int(result.get("score", 50))
+        comment = result.get("comment", "")
+    except (json.JSONDecodeError, ValueError):
+        score = 50
+        comment = response.content.strip()
+    
+    return {"review": comment, "score": score}
+
+def finalize_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = llm.invoke(f"""根据以下内容生成最终版本（直接输出文章，不要解释）：
+
+【主题】{state['topic']}
+【研究】{state['research']}
+【初稿】{state['draft']}
+【审稿意见】{state['review']}""")
+    return {"final_output": response.content.strip()}
+
+# ===== 路由函数 =====
+
+def should_rewrite(state: GraphState) -> str:
+    max_rewrites = 2
+    if state["score"] < 70 and state["rewrite_count"] < max_rewrites:
+        return "rewrite"
+    return "finalize"
+
+def should_continue(state: GraphState) -> str:
+    """从 researcher 出发，总是进入 writer"""
+    return "writer"
+
+# ===== 构建图 =====
+workflow = StateGraph(GraphState)
+workflow.add_node("researcher", researcher_node)
+workflow.add_node("writer", writer_node)
+workflow.add_node("reviewer", reviewer_node)
+workflow.add_node("finalize", finalize_node)
+
+# 边
+workflow.add_edge(START, "researcher")
+workflow.add_edge("researcher", "writer")
+
+# 条件路由：reviewer 之后，根据分数决定是否重写
+workflow.add_conditional_edges(
+    "reviewer",
+    should_rewrite,
+    {
+        "rewrite": "writer",    # 打回重写
+        "finalize": "finalize"  # 通过，生成最终版本
+    }
+)
+
+workflow.add_edge("finalize", END)
+
+app = workflow.compile()
+
+# ===== 运行 =====
+if __name__ == "__main__":
+    result = app.invoke({"topic": "多Agent协同开发"})
+    print("=== 最终输出 ===")
+    print(result["final_output"])
+    print(f"\n=== 审稿分数: {result['score']} ===")
+    print(f"=== 重写次数: {result.get('rewrite_count', 0)} ===")</code></pre>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">⚠️ 防止无限循环</div>
+      条件路由容易导致死循环。务必用 <code>rewrite_count</code> 这样的计数器来限制最大迭代次数，否则 LLM 一直给出低分就会导致循环不止。
+    </div>
+
+    <!-- Section 4 -->
+    <h2>四、循环的两种模式</h2>
+
+    <p>在 LangGraph 中，循环（Loop）有两种实现方式：</p>
+
+    <h3>模式1：显式计数器（推荐）</h3>
+    <p>在状态中加一个计数器字段，路由函数检查计数器来决定是否继续循环。</p>
+    <pre><code># 在 should_rewrite 中判断
+if score < 70 and rewrite_count < MAX_ITERATIONS:
+    return "rewrite"
+return "finalize"
+
+# 每次回到 writer 时递增计数器
+def writer_node(state):
+    new_count = state.get("rewrite_count", 0) + 1
+    return {..., "rewrite_count": new_count}</code></pre>
+
+    <h3>模式2：interrupt（人工中断）</h3>
+    <p>在循环的关键节点插入 <code>interrupt()</code>，让人类确认后继续执行。适合需要人工审核的场景。</p>
+    <pre><code>from langgraph.types import interrupt
+
+def human_review_node(state):
+    result = interrupt({
+        "message": "文章已完成，请确认是否通过？",
+        "draft": state["draft"],
+        "options": ["approve", "reject"]
+    })
+    # result 是人工选择的结果
+    return {"human_decision": result}</code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 interrupt 是什么</div>
+      <code>interrupt()</code> 会让工作流在这一点<strong>暂停</strong>，等待外部输入（人类决策或 API 回调），然后恢复执行。这是构建 Human-in-the-loop 的核心机制。
+    </div>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/concepts/conditional_edges/">LangGraph 条件边文档</a></p>
+
+    <!-- Section 5 -->
+    <h2>五、三种常见路由模式</h2>
+
+    <table>
+      <thead>
+        <tr><th>模式</th><th>适用场景</th><th>代码示意</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>二元分支</strong></td>
+          <td>通过/不通过，是/否</td>
+          <td><code>return "yes" | "no"</code></td>
+        </tr>
+        <tr>
+          <td><strong>多路路由</strong></td>
+          <td>根据类别分发到不同专家</td>
+          <td><code>return "expert_a" | "expert_b" | "expert_c"</code></td>
+        </tr>
+        <tr>
+          <td><strong>循环+退出</strong></td>
+          <td>迭代优化直到满足条件</td>
+          <td><code>return "loop" | "exit"</code></td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Section 6: 常见错误 -->
+    <h2>六、条件路由新手常见错误</h2>
+
+    <ol style="margin:12px 0 16px 24px; line-height:2;">
+      <li><strong>返回字符串和 route_map 的 key 不匹配</strong> —— 路由函数返回了 "ok"，但 map 里只有 "pass" 和 "fail"，导致运行时错误。</li>
+      <li><strong>忘记加终止路径</strong> —— 条件路由必须有能到达 END 的路径，否则流程永远无法结束。</li>
+      <li><strong>循环没有退出条件</strong> —— 这是最常见也最危险的错误，会导致请求超时或 Token 耗尽。</li>
+      <li><strong>在路由函数里做重型操作</strong> —— 路由函数应该只是快速判断，不要在里面调用 LLM 或做网络请求。</li>
+    </ol>
+
+    <!-- Section 7: Quiz -->
+    <h2>七、自检练习</h2>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-question">Q1: add_conditional_edges 的三个参数分别是什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q1" value="a"> A. 目标节点、路由函数、边类型</label></li>
+        <li><label><input type="radio" name="q1" value="b"> B. 源节点、路由函数、路由映射（route_map）</label></li>
+        <li><label><input type="radio" name="q1" value="c"> C. 起始节点、终止节点、条件表达式</label></li>
+        <li><label><input type="radio" name="q1" value="d"> D. 节点名、LLM、状态字典</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-question">Q2: interrupt() 的作用是什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q2" value="a"> A. 强制终止整个工作流</label></li>
+        <li><label><input type="radio" name="q2" value="b"> B. 在节点处暂停，等待外部输入后再继续</label></li>
+        <li><label><input type="radio" name="q2" value="c"> C. 跳过下一个节点直接到 END</label></li>
+        <li><label><input type="radio" name="q2" value="d"> D. 重新编译整个图</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <!-- Section 8: 实践任务 -->
+    <h2>八、实践任务</h2>
+
+    <p>基于上面的示例，完成以下挑战：</p>
+
+    <ul class="checklist">
+      <li><strong>任务 A</strong>：扩展上面代码，让 Reviewer 在 score &gt;= 90 时标记为"优秀"，写入状态的 <code>quality_tag</code> 字段</li>
+      <li><strong>任务 B</strong>：在 Finalize 节点之前，根据 <code>quality_tag</code> 添加一条条件边——优秀的直接发布，其他的追加一段编辑说明</li>
+      <li><strong>任务 C</strong>：在 Reviewer 节点中使用 <code>interrupt()</code>，在打分后暂停等待人类确认（ approve / reject ）</li>
+    </ul>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 任务 C 提示</div>
+      <pre><code>def reviewer_node(state: GraphState) -> dict:
+    # ... 打分逻辑 ...
+    decision = interrupt({
+        "score": score,
+        "draft_preview": state["draft"][:200],
+        "prompt": "请确认是否通过？回复 approve 或 reject"
+    })
+    # decision 是人类输入的结果
+    return {"review": decision, "score": score}</code></pre>
+    </div>
+
+    <!-- Section 9: 下一步 -->
+    <div class="lesson-footer">
+      <h3>下一步</h3>
+      <p>完成本课实践任务后，进入 <strong>Lesson 05：Human-in-the-loop 与状态持久化</strong>，学习如何让人类介入关键决策点，以及如何保存和恢复 Agent 的工作状态。</p>
+
+      <div class="followup-prompt">
+        <strong>💬 有疑问？随时问我：</strong>
+        例如："interrupt() 的返回值怎么获取？""条件边和普通边能混用吗？""同一个节点既能被普通边指向又能被条件边指向吗？"
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const answers = {
+      q1: 'b',
+      q2: 'b'
+    };
+
+    const explanations = {
+      q1: 'add_conditional_edges 三个参数依次是：源节点（从哪个节点出发）、路由函数（接收 state 返回字符串）、route_map（字符串到目标节点的映射）。',
+      q2: 'interrupt() 在工作流执行到该节点时暂停，等待外部输入（人类决策或 API 回调），拿到结果后恢复执行。这是 Human-in-the-loop 的核心机制。'
+    };
+
+    document.querySelectorAll('.quiz-options input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const quiz = this.closest('.quiz');
+        const qName = this.name;
+        const feedback = quiz.querySelector('.quiz-feedback');
+        const selected = this.value;
+        const correct = answers[qName];
+
+        if (selected === correct) {
+          feedback.className = 'quiz-feedback correct';
+          feedback.textContent = '✅ 正确！' + explanations[qName];
+        } else {
+          feedback.className = 'quiz-feedback incorrect';
+          feedback.textContent = '❌ 不对。' + explanations[qName];
+        }
+      });
+    });
+  </script>
+</body>
+</html>

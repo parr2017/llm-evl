@@ -30,6 +30,9 @@ BUILTIN_PROMPTS: list[PromptItem] = [
         text="用 3-4 个短段落向编程初学者解释递归。给出至少一个代码示例。",
         expected_keywords=["递归", "函数", "调用"],
         min_output_tokens=80,
+        # Points carry the quality signal here; keywords alone can be hit by
+        # an answer that is on-topic but wrong.
+        reference_points=["调用自己", "终止条件", "代码示例"],
     ),
     PromptItem(
         id="long",
@@ -41,6 +44,7 @@ BUILTIN_PROMPTS: list[PromptItem] = [
         ),
         expected_keywords=["开源", "软件", "开发"],
         min_output_tokens=300,
+        reference_points=["引言", "具体例子", "结论"],
     ),
 ]
 
@@ -63,6 +67,7 @@ def load_custom_prompts(path: str = PROMPTS_FILE) -> list[PromptItem]:
             bucket=d.get("bucket", "medium"),
             expected_keywords=list(d.get("expected_keywords") or []),
             min_output_tokens=d.get("min_output_tokens"),
+            reference_points=list(d.get("reference_points") or []),
             custom=True,
         ))
     return out
@@ -78,6 +83,7 @@ def save_custom_prompts(prompts: list[PromptItem], path: str = PROMPTS_FILE) -> 
             "bucket": p.bucket,
             "expected_keywords": p.expected_keywords,
             "min_output_tokens": p.min_output_tokens,
+            "reference_points": p.reference_points,
         }
         for p in prompts if p.custom
     ]}

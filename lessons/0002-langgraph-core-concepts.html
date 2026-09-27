@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 02 — LangGraph 核心概念与图编排</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="lesson-nav">
+      <span>📚 多Agent协同开发入门</span>
+      <a href="0001-what-are-multi-agent-systems.html">← Lesson 01</a>
+      <a href="#">GLOSSARY</a>
+      <a href="#">RESOURCES</a>
+    </nav>
+
+    <header class="lesson-header">
+      <div class="lesson-number">Lesson 02 · Phase 1</div>
+      <h1 class="lesson-title">LangGraph 核心概念：节点、边与状态图</h1>
+      <div class="lesson-meta">
+        <span>⏱ 约50分钟</span>
+        <span>📝 包含2个练习</span>
+      </div>
+    </header>
+
+    <!-- Section 1 -->
+    <h2>一、为什么选 LangGraph？</h2>
+
+    <p>LangGraph 是 LangChain 官方的多 Agent 编排框架，用<strong>有向图（Directed Graph）</strong>来描述 Agent 之间的协作关系。</p>
+
+    <p>你可以把一张图理解为：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li><strong>节点（Node）</strong> = 一个 Agent（或一个处理步骤）</li>
+      <li><strong>边（Edge）</strong> = 数据流动的方向</li>
+      <li><strong>状态（State）</strong> = 所有节点共享的"工作簿"</li>
+    </ul>
+
+    <p>相比 LangChain 原有的 <code>AgentExecutor</code>，LangGraph 提供更细粒度的控制——你可以定义条件路由、循环、中断点，适合构建复杂的工作流。</p>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/concepts/high_level/">LangGraph High-Level Overview</a></p>
+
+    <!-- Section 2 -->
+    <h2>二、图的三要素</h2>
+
+    <h3>1. State（状态）</h3>
+    <p>状态是一个字典，描述当前工作流的所有信息。每个节点可以读写它。</p>
+    <pre><code>class GraphState(TypedDict):
+    topic: str         # 用户输入的主题
+    research: str      # Researcher 的输出
+    draft: str         # Writer 的初稿
+    review: str        # Reviewer 的反馈
+    final_output: str  # 最终结果</code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 设计原则</div>
+      状态应该是<strong>明确的、可序列化的</strong>。避免在状态中放临时变量或复杂对象，只保留流程需要的数据。
+    </div>
+
+    <h3>2. Nodes（节点）</h3>
+    <p>每个节点是一个纯函数，接收当前状态，返回更新后的状态（或部分更新）。</p>
+    <pre><code>def researcher_node(state: GraphState) -> dict:
+    # 读取 state["topic"]
+    # 调用 LLM 做研究
+    # 返回 {"research": "研究结果..."}
+    pass</code></pre>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 关键规则</div>
+      节点函数<strong>只返回它要更新的字段</strong>，不需要返回整个状态字典。LangGraph 会自动合并。
+    </div>
+
+    <h3>3. Edges（边）</h3>
+    <p>边定义节点之间的连接关系。分为两种：</p>
+
+    <table>
+      <thead>
+        <tr><th>类型</th><th>作用</th><th>示例</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>普通边</strong></td>
+          <td>固定流向，无条件</td>
+          <td>A → B → C</td>
+        </tr>
+        <tr>
+          <td><strong>条件边</strong></td>
+          <td>根据状态动态选择路径</td>
+          <td>B → 根据 score 决定去 C 还是 D</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <!-- Section 3 -->
+    <h2>三、构建一个完整的 Multi-Agent 工作流</h2>
+
+    <p>现在来构建一个<strong>三Agent协作</strong>的工作流：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li><strong>Researcher</strong>：研究给定主题</li>
+      <li><strong>Writer</strong>：根据研究结果撰写初稿</li>
+      <li><strong>Reviewer</strong>：审核初稿，给出改进意见</li>
+    </ul>
+
+    <p>使用 Orchestrator 风格（但实际是 Pipeline，因为顺序固定）。</p>
+
+    <pre><code>import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Annotated
+import operator
+
+load_dotenv()
+
+# ===== 1. 定义状态 =====
+class GraphState(TypedDict):
+    topic: str
+    research: str
+    draft: str
+    review: str
+    final_output: str
+
+# ===== 2. 定义节点 =====
+
+def researcher_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""你是领域研究员。请对以下主题进行简要研究（3-5个要点）：
+
+主题：{state['topic']}
+
+请以要点列表形式输出，每个要点不超过50字。"""
+    response = llm.invoke(prompt)
+    return {"research": response.content.strip()}
+
+def writer_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""你是技术写作者。请根据以下研究内容，撰写一篇结构清晰的简介文章（200-300字）：
+
+【研究内容】
+{state['research']}
+
+要求：
+- 开头一段概述
+- 中间分段阐述要点
+- 结尾一段总结"""
+    response = llm.invoke(prompt)
+    return {"draft": response.content.strip()}
+
+def reviewer_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""你是审稿编辑。请对以下草稿进行评审，指出不足并给出修改建议：
+
+【草稿】
+{state['draft']}
+
+请按以下格式输出：
+【优点】（2-3条）
+【问题】（2-3条）
+【建议】（具体的修改方向）"""
+    response = llm.invoke(prompt)
+    return {"review": response.content.strip()}
+
+def finalize_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""根据研究内容、初稿和审稿意见，生成最终版本。
+直接输出最终文章，不要解释过程。
+
+【研究内容】
+{state['research']}
+
+【初稿】
+{state['draft']}
+
+【审稿意见】
+{state['review']}"""
+    response = llm.invoke(prompt)
+    return {"final_output": response.content.strip()}
+
+# ===== 3. 构建图 =====
+workflow = StateGraph(GraphState)
+
+# 添加节点
+workflow.add_node("researcher", researcher_node)
+workflow.add_node("writer", writer_node)
+workflow.add_node("reviewer", reviewer_node)
+workflow.add_node("finalize", finalize_node)
+
+# 添加边（Pipeline 顺序）
+workflow.add_edge(START, "researcher")
+workflow.add_edge("researcher", "writer")
+workflow.add_edge("writer", "reviewer")
+workflow.add_edge("reviewer", "finalize")
+workflow.add_edge("finalize", END)
+
+# 编译
+app = workflow.compile()
+
+# ===== 4. 运行 =====
+if __name__ == "__main__":
+    result = app.invoke({"topic": "多Agent协同开发"})
+    print("=== 最终输出 ===")
+    print(result["final_output"])
+    print("\n=== 审稿意见 ===")
+    print(result["review"])</code></pre>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 运行提示</div>
+      这段代码可以直接运行。注意观察：每个节点只返回自己负责的字段，LangGraph 自动合并到全局状态中。
+    </div>
+
+    <!-- Section 4: 条件路由 -->
+    <h2>四、进阶：条件路由（Conditional Edge）</h2>
+
+    <p>现实场景往往需要分支逻辑。比如：如果研究结果很短（&lt;50字），先补充研究再写草稿；如果已经足够详细，直接写。</p>
+
+    <p>LangGraph 通过 <code>add_conditional_edges</code> 实现条件路由：</p>
+
+    <pre><code># 定义路由函数
+def should_research_more(state: GraphState) -> str:
+    if len(state["research"]) < 50:
+        return "re_research"   # 补充研究
+    return "writer"            # 直接写
+
+# 添加条件边（从 researcher 节点出发）
+workflow.add_conditional_edges(
+    "researcher",
+    should_research_more,
+    {
+        "re_research": "researcher",   # 回到自己（循环）
+        "writer": "writer",            # 前进到 writer
+    }
+)</code></pre>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">⚠️ 循环警告</div>
+      条件路由可能导致无限循环。实际项目中应设置最大迭代次数或使用 <code>max_iterations</code> 参数防止死循环。
+    </div>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/concepts/conditional_edges/">LangGraph Conditional Edges 文档</a></p>
+
+    <!-- Section 5: 常见错误 -->
+    <h2>五、LangGraph 新手常见错误</h2>
+
+    <ol style="margin:12px 0 16px 24px; line-height:2;">
+      <li><strong>忘记 <code>workflow.compile()</code></strong> —— 没有编译就没有可运行的 <code>app</code>。</li>
+      <li><strong>节点函数签名错误</strong> —— 必须是 <code>(state: GraphState) -> dict</code>，不能多参或无参。</li>
+      <li><strong>在状态里存非序列化数据</strong> —— LangGraph 需要 pickle/JSON 序列化状态，列表、字符串可以，但文件句柄不行。</li>
+      <li><strong>条件边返回值拼错</strong> —— 返回的字符串必须和 <code>add_conditional_edges</code> 中的 key 完全一致。</li>
+      <li><strong>忘记添加 <code>START</code> 和 <code>END</code></strong> —— 没有 START 入口，图无法开始执行。</li>
+    </ol>
+
+    <!-- Section 6: Quiz -->
+    <h2>六、自检练习</h2>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-question">Q1: LangGraph 的节点函数应该返回什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q1" value="a"> A. 整个状态的完整副本</label></li>
+        <li><label><input type="radio" name="q1" value="b"> B. 只返回要更新的字段（dict）</label></li>
+        <li><label><input type="radio" name="q1" value="c"> C. 什么都不返回（void）</label></li>
+        <li><label><input type="radio" name="q1" value="d"> D. 返回下一个节点的名称</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-question">Q2: 以下哪个函数调用顺序是正确的？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q2" value="a"> A. compile() → add_node() → add_edge()</label></li>
+        <li><label><input type="radio" name="q2" value="b"> B. add_node() → add_edge() → compile()</label></li>
+        <li><label><input type="radio" name="q2" value="c"> C. add_edge() → add_node() → compile()</label></li>
+        <li><label><input type="radio" name="q2" value="d"> D. compile() → add_edge() → add_node()</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <!-- Section 7: 实践任务 -->
+    <h2>七、实践任务</h2>
+
+    <p>运行上面代码后，尝试以下挑战：</p>
+
+    <ul class="checklist">
+      <li><strong>任务 A</strong>：修改代码，让 Reviewer 节点额外判断：如果评分很低，返回一个 "needs_rewrite" 标记到状态中</li>
+      <li><strong>任务 B</strong>：基于这个标记，添加一条条件边——如果需要重写，回到 Writer 节点重新生成</li>
+      <li><strong>任务 C</strong>：为每个节点添加打印语句，观察状态在每一步是如何变化的</li>
+    </ul>
+
+    <!-- Section 8: 下一步 -->
+    <div class="lesson-footer">
+      <h3>下一步</h3>
+      <p>完成本课实践任务后，进入 <strong>Lesson 03：Tool Calling 与 Agent 行动能力</strong>，学习如何让 Agent 调用外部工具（搜索、计算、写文件）来扩展能力。</p>
+
+      <div class="followup-prompt">
+        <strong>💬 有疑问？随时问我：</strong>
+        例如："为什么节点返回 dict 而不是整个 state？""条件边和普通边的区别是什么？""compile() 到底做了什么？"
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const answers = {
+      q1: 'b',
+      q2: 'b'
+    };
+
+    const explanations = {
+      q1: 'LangGraph 的节点只返回要更新的字段（dict），框架会自动将其合并到全局状态中。这样设计避免了重复传递大量不必要的数据。',
+      q2: '正确的顺序是：先 add_node() 定义节点，再 add_edge() 连接节点，最后 compile() 将图编译为可执行的应用。顺序不能颠倒。'
+    };
+
+    document.querySelectorAll('.quiz-options input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const quiz = this.closest('.quiz');
+        const qName = this.name;
+        const feedback = quiz.querySelector('.quiz-feedback');
+        const selected = this.value;
+        const correct = answers[qName];
+
+        if (selected === correct) {
+          feedback.className = 'quiz-feedback correct';
+          feedback.textContent = '✅ 正确！' + explanations[qName];
+        } else {
+          feedback.className = 'quiz-feedback incorrect';
+          feedback.textContent = '❌ 不对。' + explanations[qName];
+        }
+      });
+    });
+  </script>
+</body>
+</html>

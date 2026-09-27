@@ -1,0 +1,1181 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>llm-evl · UI 重构原型</title>
+<link rel="stylesheet" href="https://unpkg.com/element-plus@2.7.6/dist/index.css" />
+<style>
+/* ============================================================
+   设计系统 — 扁平、低噪音、单一强调色
+   ============================================================ */
+:root{
+  /* 表面：三层，从下到上 */
+  --bg:        #0b0d10;
+  --surface:   #12151a;
+  --surface-2: #171b21;
+  --surface-3: #1c2129;
+  /* 线：一律 1px 发丝线 */
+  --line:      #232830;
+  --line-soft: #1a1e24;
+  /* 文字：四级 */
+  --fg:        #e6e9ee;
+  --fg-2:      #98a2b3;
+  --fg-3:      #667085;
+  /* 强调色：只有一个 */
+  --accent:      #5b8cff;
+  --accent-dim:  rgba(91,140,255,.14);
+  --accent-line: rgba(91,140,255,.32);
+  /* 语义色：只用于状态，不做装饰 */
+  --ok:   #3fb950;   --ok-dim:   rgba(63,185,80,.13);
+  --warn: #d29922;   --warn-dim: rgba(210,153,34,.13);
+  --err:  #f85149;   --err-dim:  rgba(248,81,73,.13);
+  --info: #8b949e;
+
+  --r:    6px;
+  --r-sm: 4px;
+  --mono: ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  --sans: "Inter",-apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+
+  /* Element Plus 扁平化覆盖 */
+  --el-bg-color:#12151a; --el-bg-color-overlay:#171b21; --el-fill-color-blank:#0f1216;
+  --el-fill-color-light:#1c2129; --el-fill-color-lighter:#171b21;
+  --el-border-color:#2a303a; --el-border-color-light:#232830; --el-border-color-lighter:#1a1e24;
+  --el-text-color-primary:#e6e9ee; --el-text-color-regular:#c3c9d2; --el-text-color-secondary:#98a2b3;
+  --el-color-primary:#5b8cff; --el-border-radius-base:4px;
+  --el-font-size-base:13px;
+}
+*{box-sizing:border-box}
+html,body,#app{height:100%;margin:0;padding:0}
+body{background:var(--bg);color:var(--fg);font-family:var(--sans);font-size:13px;line-height:1.5;
+     -webkit-font-smoothing:antialiased;overflow:hidden}
+::-webkit-scrollbar{width:10px;height:10px}
+::-webkit-scrollbar-thumb{background:#2a303a;border-radius:6px;border:3px solid transparent;background-clip:content-box}
+::-webkit-scrollbar-thumb:hover{background:#39414d;background-clip:content-box}
+::-webkit-scrollbar-track{background:transparent}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.tnum{font-variant-numeric:tabular-nums}
+[v-cloak]{display:none}
+.ell{max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+
+/* ============================ 布局 ============================ */
+.shell{display:flex;height:100%}
+
+/* --- 侧边栏：扁平，无品牌辉光 --- */
+.side{width:212px;flex:0 0 212px;background:var(--surface);border-right:1px solid var(--line);
+      display:flex;flex-direction:column}
+.side-hd{height:52px;display:flex;align-items:center;gap:9px;padding:0 16px;border-bottom:1px solid var(--line)}
+.side-logo{width:22px;height:22px;flex:0 0 22px;border-radius:var(--r-sm);background:var(--accent);
+           color:#fff;font:700 12px/22px var(--sans);text-align:center}
+.side-name{font-weight:600;font-size:13.5px;letter-spacing:-.1px}
+.side-ver{font:500 10px/1 var(--mono);color:var(--fg-3);padding:2px 5px;border:1px solid var(--line);border-radius:3px}
+.side-nav{flex:1;overflow-y:auto;padding:12px 8px}
+.nav-lbl{font:600 10px/1 var(--sans);letter-spacing:.9em;color:var(--fg-3);text-transform:uppercase;
+         padding:14px 10px 7px}
+.nav-lbl:first-child{padding-top:2px}
+.nav-i{display:flex;align-items:center;gap:9px;height:30px;padding:0 10px;border-radius:var(--r-sm);
+       color:var(--fg-2);cursor:pointer;font-size:13px;user-select:none;transition:background .12s,color .12s}
+.nav-i:hover{background:var(--surface-2);color:var(--fg)}
+.nav-i.on{background:var(--accent-dim);color:#cddcff;font-weight:500}
+.nav-i .ic{width:15px;text-align:center;font-size:13px;opacity:.85}
+.nav-i .cnt{margin-left:auto;font:600 10px/1 var(--mono);color:var(--fg-3);
+            background:var(--surface-3);padding:3px 5px;border-radius:3px}
+.nav-i.on .cnt{background:rgba(91,140,255,.22);color:#cddcff}
+.side-ft{border-top:1px solid var(--line);padding:10px 12px;display:flex;flex-direction:column;gap:7px}
+.side-ft .r{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--fg-3)}
+.dot{width:6px;height:6px;border-radius:50%;flex:0 0 6px}
+.dot.ok{background:var(--ok)} .dot.run{background:var(--warn)} .dot.off{background:var(--fg-3)}
+
+/* --- 主区 --- */
+.main{flex:1;min-width:0;display:flex;flex-direction:column}
+.bar{height:52px;flex:0 0 52px;display:flex;align-items:center;gap:12px;padding:0 22px;
+     border-bottom:1px solid var(--line);background:var(--surface)}
+.bar h1{margin:0;font-size:14.5px;font-weight:600;letter-spacing:-.15px}
+.bar .sub{font-size:12px;color:var(--fg-3)}
+.bar-r{margin-left:auto;display:flex;align-items:center;gap:8px}
+.scroll{flex:1;overflow-y:auto;padding:20px 22px 56px}
+.wrap{max-width:1360px;margin:0 auto}
+
+/* ============================ 基础件 ============================ */
+/* 面板：只有一层背景 + 一根发丝线，没有阴影 */
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);margin-bottom:14px}
+.panel-hd{display:flex;align-items:center;gap:10px;padding:11px 15px;border-bottom:1px solid var(--line-soft);min-height:42px}
+.panel-hd h2{margin:0;font-size:12.5px;font-weight:600;letter-spacing:.1px}
+.panel-hd .note{font-size:11.5px;color:var(--fg-3)}
+.panel-bd{padding:15px}
+.panel-bd.tight{padding:0}
+
+/* 按钮：扁平，实心/幽灵/文字 三种，禁用渐变 */
+.btn{display:inline-flex;align-items:center;gap:6px;height:28px;padding:0 11px;border-radius:var(--r-sm);
+     border:1px solid var(--line);background:var(--surface-2);color:var(--fg-2);cursor:pointer;
+     font:500 12.5px/1 var(--sans);white-space:nowrap;transition:all .12s}
+.btn:hover{border-color:#39414d;color:var(--fg)}
+.btn.pri{background:var(--accent);border-color:var(--accent);color:#fff}
+.btn.pri:hover{background:#4b7cf0;border-color:#4b7cf0}
+.btn.gho{background:transparent}
+.btn.dgr{color:var(--err)}
+.btn.dgr:hover{border-color:rgba(248,81,73,.4);color:var(--err);background:var(--err-dim)}
+.btn[disabled]{opacity:.4;pointer-events:none}
+.btn.sm{height:24px;padding:0 8px;font-size:11.5px}
+
+/* 标签：状态色，左侧小圆点 */
+.tag{display:inline-flex;align-items:center;gap:5px;height:19px;padding:0 7px;border-radius:3px;
+     font:600 11px/1 var(--sans);background:var(--surface-3);color:var(--fg-2)}
+.tag.ok{background:var(--ok-dim);color:var(--ok)} .tag.warn{background:var(--warn-dim);color:var(--warn)}
+.tag.err{background:var(--err-dim);color:var(--err)} .tag.acc{background:var(--accent-dim);color:#a8c0ff}
+.tag i{width:5px;height:5px;border-radius:50%;background:currentColor}
+
+/* 数值徽标 */
+.chip{font:600 11px/1 var(--mono);padding:3px 6px;border-radius:3px;background:var(--surface-3);color:var(--fg-2)}
+.chip.acc{background:var(--accent-dim);color:#a8c0ff} .chip.ok{background:var(--ok-dim);color:var(--ok)}
+.chip.warn{background:var(--warn-dim);color:var(--warn)} .chip.err{background:var(--err-dim);color:var(--err)}
+
+/* 表格：紧凑、自绘、粘性表头 */
+.tbl{width:100%;border-collapse:separate;border-spacing:0;font-size:12.5px}
+.tbl th{position:sticky;top:0;z-index:2;background:var(--surface-2);color:var(--fg-3);
+        font:600 11px/1 var(--sans);letter-spacing:.3px;text-align:left;padding:9px 12px;
+        border-bottom:1px solid var(--line);white-space:nowrap}
+.tbl td{padding:9px 12px;border-bottom:1px solid var(--line-soft);color:var(--fg-2);vertical-align:middle}
+.tbl tr:last-child td{border-bottom:0}
+.tbl tbody tr:hover td{background:var(--surface-2)}
+.tbl .num{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;color:var(--fg)}
+.tbl .nm{color:var(--fg);font-weight:500}
+.tbl tr.hi td{background:var(--accent-dim)}
+.tbl tr.hi:hover td{background:rgba(91,140,255,.19)}
+.tbl-wrap{max-height:340px;overflow:auto}
+.best{color:var(--ok);font-weight:600} .worst{color:var(--err);font-weight:600}
+
+/* 条形量表 */
+.bar-l{height:4px;border-radius:2px;background:var(--surface-3);overflow:hidden;min-width:56px}
+.bar-l>i{display:block;height:100%;border-radius:2px;background:var(--accent)}
+.bar-l.good>i{background:var(--ok)} .bar-l.mid>i{background:var(--warn)} .bar-l.bad>i{background:var(--err)}
+
+/* 网格 */
+.g{display:grid;gap:14px}
+.g2{grid-template-columns:repeat(2,minmax(0,1fr))}
+.g3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.g4{grid-template-columns:repeat(4,minmax(0,1fr))}
+.g5{grid-template-columns:repeat(5,minmax(0,1fr))}
+@media(max-width:1180px){.g4,.g5{grid-template-columns:repeat(2,minmax(0,1fr))}.g3{grid-template-columns:1fr 1fr}}
+@media(max-width:860px){.g2,.g3,.g4,.g5{grid-template-columns:1fr}}
+
+/* 键值行 */
+.kvs{display:grid;grid-template-columns:auto 1fr;gap:6px 14px;font-size:12.5px;align-items:baseline}
+.kvs dt{color:var(--fg-3)}
+.kvs dd{margin:0;color:var(--fg);font-family:var(--mono);font-variant-numeric:tabular-nums}
+
+.empty{padding:34px 16px;text-align:center;color:var(--fg-3);font-size:12.5px}
+.div{height:1px;background:var(--line-soft);margin:12px 0}
+
+/* ============================ 概览页 ============================ */
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:13px 15px}
+.kpi .lb{font-size:11.5px;color:var(--fg-3);display:flex;align-items:center;gap:6px}
+.kpi .vl{font:600 24px/1.2 var(--mono);letter-spacing:-.6px;margin-top:7px;font-variant-numeric:tabular-nums}
+.kpi .vl .u{font-size:12px;color:var(--fg-3);font-weight:500;margin-left:3px;letter-spacing:0}
+.kpi .ft{margin-top:6px;font-size:11.5px;display:flex;align-items:center;gap:6px;color:var(--fg-3)}
+.d-up{color:var(--ok)} .d-dn{color:var(--err)} .d-eq{color:var(--fg-3)}
+
+/* 结论条 */
+.verdict{background:var(--surface);border:1px solid var(--line);border-left:3px solid var(--warn);
+         border-radius:var(--r);padding:14px 16px;margin-bottom:14px}
+.verdict.good{border-left-color:var(--ok)} .verdict.bad{border-left-color:var(--err)}
+.verdict .vh{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.verdict .vh b{font-size:13px;font-weight:600}
+.verdict p{margin:0;font-size:12.5px;color:var(--fg-2);line-height:1.65}
+.verdict .vnums{margin-top:9px;display:flex;gap:18px;flex-wrap:wrap;font-size:12px;color:var(--fg-3)}
+.verdict .vnums b{color:var(--fg);font-family:var(--mono);font-weight:600}
+
+/* 覆盖度条 —— 直接回答"这次测了什么 / 没测什么" */
+.cov{display:flex;gap:4px;margin-top:10px}
+.cov .c{flex:1;height:26px;border-radius:var(--r-sm);display:flex;align-items:center;justify-content:center;
+        font:600 10.5px/1 var(--sans);border:1px solid var(--line);color:var(--fg-3);background:var(--surface-2)}
+.cov .c.on{background:var(--ok-dim);border-color:rgba(63,185,80,.3);color:var(--ok)}
+.cov .c.on.w{background:var(--warn-dim);border-color:rgba(210,153,34,.3);color:var(--warn)}
+.cov .c.off{background:repeating-linear-gradient(45deg,var(--surface-2),var(--surface-2) 4px,#14181d 4px,#14181d 8px)}
+
+/* ============================ 报告页 ============================ */
+/* 五维评分卡 */
+.dim{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);padding:13px 14px;
+     display:flex;flex-direction:column;gap:9px;min-height:132px}
+.dim.na{background:repeating-linear-gradient(45deg,var(--surface-2),var(--surface-2) 5px,#14181d 5px,#14181d 10px)}
+.dim .dh{display:flex;align-items:center;gap:7px}
+.dim .dh b{font-size:12.5px;font-weight:600}
+.dim .dv{margin-left:auto;font:600 19px/1 var(--mono);letter-spacing:-.5px}
+.dim .dv .u{font-size:11px;color:var(--fg-3);font-weight:500}
+.dim .dsub{font-size:11.5px;color:var(--fg-3);line-height:1.55}
+.dim .dsub em{font-style:normal;color:var(--fg-2);font-family:var(--mono)}
+
+/* Tab 条 */
+.tabs{display:flex;gap:2px;padding:0 15px;border-bottom:1px solid var(--line);overflow-x:auto}
+.tab{padding:9px 12px;font-size:12.5px;color:var(--fg-3);cursor:pointer;white-space:nowrap;
+     border-bottom:2px solid transparent;margin-bottom:-1px;transition:color .12s}
+.tab:hover{color:var(--fg-2)}
+.tab.on{color:var(--fg);border-bottom-color:var(--accent);font-weight:500}
+
+/* 洞察行 */
+.ins{display:flex;gap:9px;padding:10px 12px;border-radius:var(--r-sm);background:var(--surface-2);
+     border-left:2px solid var(--fg-3);font-size:12.5px;line-height:1.6;color:var(--fg-2)}
+.ins.warn{border-left-color:var(--warn);background:var(--warn-dim)}
+.ins.good{border-left-color:var(--ok);background:var(--ok-dim)}
+.ins.info{border-left-color:var(--accent);background:var(--accent-dim)}
+.ins b{color:var(--fg);font-weight:600}
+.ins .ico{flex:0 0 auto;font-size:12px}
+
+/* ============================ 对话页 ============================ */
+.chat-w{height:calc(100vh - 268px);min-height:400px;display:flex;flex-direction:column}
+.chat-sc{flex:1;overflow-y:auto;padding:14px 15px}
+.msg-u{max-width:56%;margin-left:auto;padding:9px 12px;border-radius:var(--r) var(--r) 2px var(--r);
+       background:var(--accent-dim);color:#cddcff;font-size:13px;line-height:1.6}
+.mcols{display:grid;gap:12px;margin-top:12px}
+.mcol{background:var(--surface-2);border:1px solid var(--line);border-top:2px solid var(--mc);
+      border-radius:var(--r);padding:12px 13px;min-width:0}
+.mcol .mh{display:flex;align-items:center;gap:7px;margin-bottom:9px}
+.mcol .mh b{font:600 12.5px/1 var(--sans);color:var(--mc)}
+.mcol .mb{font-size:12.5px;line-height:1.7;color:var(--fg);white-space:pre-wrap;word-break:break-word;min-height:22px}
+.mbadges{display:flex;gap:5px;flex-wrap:wrap;margin-top:10px;padding-top:9px;border-top:1px solid var(--line-soft)}
+.mb2{font:600 10.5px/1 var(--mono);padding:3px 6px;border-radius:3px;background:var(--surface-3);color:var(--fg-2)}
+.caret{display:inline-block;width:6px;height:13px;background:var(--accent);vertical-align:-2px;animation:bl 1s steps(2) infinite}
+@keyframes bl{50%{opacity:0}}
+.chat-in{display:flex;gap:8px;padding:11px 15px;border-top:1px solid var(--line);background:var(--surface)}
+
+/* ============================ 其他 ============================ */
+.frm{display:grid;grid-template-columns:repeat(auto-fill,minmax(184px,1fr));gap:13px}
+.fld{display:flex;flex-direction:column;gap:5px}
+.fld>label{font-size:11.5px;color:var(--fg-3);font-weight:500}
+.fld .hint{font-size:10.5px;color:var(--fg-3);line-height:1.45}
+
+.prov{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r);margin-bottom:10px;overflow:hidden}
+.prov-hd{display:flex;align-items:center;gap:10px;padding:10px 13px;flex-wrap:wrap}
+.prov-hd .nm{font-weight:600;font-size:13px}
+.prov-hd .url{font:400 11.5px/1 var(--mono);color:var(--fg-3)}
+
+.prog{height:5px;border-radius:3px;background:var(--surface-3);overflow:hidden}
+.prog>i{display:block;height:100%;background:var(--accent);transition:width .4s ease}
+.prog.stripe>i{background-image:linear-gradient(45deg,rgba(255,255,255,.16) 25%,transparent 25%,transparent 50%,rgba(255,255,255,.16) 50%,rgba(255,255,255,.16) 75%,transparent 75%);background-size:10px 10px}
+
+.errgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(128px,1fr));gap:9px}
+.errb{background:var(--surface-2);border:1px solid var(--line);border-radius:var(--r-sm);padding:10px 11px}
+.errb .lb{font-size:11px;color:var(--fg-3)}
+.errb .vl{font:600 17px/1.2 var(--mono);margin-top:5px;letter-spacing:-.4px}
+
+.cmp-pick{display:flex;align-items:center;gap:10px;padding:11px 15px;flex-wrap:wrap}
+.reql{font:400 11.5px/1.7 var(--mono);color:var(--fg-2);max-height:230px;overflow:auto;
+      background:#0f1216;border:1px solid var(--line);border-radius:var(--r-sm);padding:11px 12px}
+.reql .t{color:var(--fg-3)} .reql .m{color:var(--accent)}
+
+/* Element Plus 微调 */
+.el-input__wrapper,.el-select__wrapper{background:var(--surface-2)!important;box-shadow:0 0 0 1px var(--line) inset!important;
+  border-radius:var(--r-sm)!important;min-height:28px}
+.el-input__wrapper:hover,.el-select__wrapper:hover{box-shadow:0 0 0 1px #39414d inset!important}
+.el-input__inner{font-size:12.5px!important}
+.el-select__placeholder,.el-input__inner{color:var(--fg-2)!important}
+.el-input-number{width:100%}
+.el-input-number .el-input__inner{text-align:left}
+.el-button{border-radius:var(--r-sm)!important;font-size:12.5px!important}
+.el-button--small{height:28px!important}
+.el-switch{--el-switch-on-color:var(--accent);--el-switch-off-color:var(--surface-3)}
+.el-radio-button__inner{background:var(--surface-2)!important;border-color:var(--line)!important;color:var(--fg-2)!important;
+  font-size:12px!important;padding:7px 11px!important}
+.el-radio-button__original-radio:checked+.el-radio-button__inner{background:var(--accent)!important;border-color:var(--accent)!important;color:#fff!important;box-shadow:none!important}
+.el-tag{border-radius:3px!important}
+.el-progress-bar__outer{background:var(--surface-3)!important}
+.el-progress-bar__inner{background:var(--accent)!important}
+.el-dialog{background:var(--surface)!important;border:1px solid var(--line);border-radius:var(--r)}
+.el-dialog__title{font-size:13.5px!important;font-weight:600!important}
+.el-tabs__item{font-size:12.5px!important;color:var(--fg-3)!important}
+.el-tabs__item.is-active{color:var(--fg)!important}
+.el-tabs__nav-wrap::after{background:var(--line)!important}
+.el-form-item__label{font-size:12px!important;color:var(--fg-2)!important}
+
+/* 顶部浮动说明 */
+.proto{position:fixed;right:14px;bottom:14px;z-index:99;display:flex;gap:6px;align-items:center;
+      background:var(--surface-2);border:1px solid var(--line);border-radius:999px;padding:5px 12px;
+      font:500 11.5px/1 var(--sans);color:var(--fg-3);box-shadow:0 6px 22px -8px rgba(0,0,0,.7)}
+.proto b{color:var(--accent);font-weight:600}
+</style>
+</head>
+<body>
+<div id="app" v-cloak>
+<div class="shell">
+
+  <!-- ================= 侧边栏 ================= -->
+  <aside class="side">
+    <div class="side-hd">
+      <div class="side-logo">L</div>
+      <div class="side-name">llm-evl</div>
+      <div class="side-ver">0.2</div>
+    </div>
+    <nav class="side-nav">
+      <div class="nav-lbl">测试</div>
+      <div v-for="it in navA" :key="it.k" class="nav-i" :class="{on:page===it.k}" @click="go(it.k)">
+        <span class="ic">{{it.i}}</span><span>{{it.l}}</span>
+        <span v-if="it.c" class="cnt">{{it.c}}</span>
+      </div>
+      <div class="nav-lbl">分析</div>
+      <div v-for="it in navB" :key="it.k" class="nav-i" :class="{on:page===it.k}" @click="go(it.k)">
+        <span class="ic">{{it.i}}</span><span>{{it.l}}</span>
+        <span v-if="it.c" class="cnt">{{it.c}}</span>
+      </div>
+      <div class="nav-lbl">配置</div>
+      <div v-for="it in navC" :key="it.k" class="nav-i" :class="{on:page===it.k}" @click="go(it.k)">
+        <span class="ic">{{it.i}}</span><span>{{it.l}}</span>
+      </div>
+    </nav>
+    <div class="side-ft">
+      <div class="r"><span class="dot ok"></span> 服务在线 · :7788</div>
+      <div class="r"><span class="dot" :class="running?'run':'off'"></span> {{ running? '运行中 '+Math.round(prog*100)+'%' : '空闲' }}</div>
+      <div class="r"><span class="dot ok"></span> 模型池 5 · 供应商 12</div>
+    </div>
+  </aside>
+
+  <!-- ================= 主区 ================= -->
+  <div class="main">
+    <header class="bar">
+      <h1>{{ cur.l }}</h1>
+      <span class="sub">{{ cur.d }}</span>
+      <div class="bar-r">
+        <span v-if="running" class="tag warn"><i></i>运行中 · {{ progCells }} 单元</span>
+        <span class="tag">#7f3a91c2</span>
+        <button class="btn gho" @click="go('run')">新建测试</button>
+      </div>
+    </header>
+
+    <div class="scroll"><div class="wrap">
+
+      <!-- ============================================================
+           概览
+           ============================================================ -->
+      <template v-if="page==='dash'">
+        <!-- 结论条：第一眼就知道结论 -->
+        <div class="verdict">
+          <div class="vh">
+            <span class="tag warn"><i></i>注意</span>
+            <b>并发 8 之后进入排队区间，16 并发 p90 首字延迟突破 4s</b>
+          </div>
+          <p>6 个模型 × 3 个 Prompt × 5 档并发共 <b style="color:var(--fg)">360</b> 次请求。
+             吞吐在并发 1→8 线性增长（141→428 tok/s），并发 16 后增益趋平而首字延迟翻倍，说明瓶颈在 prefill 排队而非算力。
+             质量维度本次<b style="color:var(--warn)">未覆盖</b>（未配置评测集），结论仅限性能与稳定性。</p>
+          <div class="vnums">
+            <span>最优首字 <b>glm5.3-flash 0.284s</b></span>
+            <span>最高吞吐 <b>428 tok/s @并发8</b></span>
+            <span>错误率 <b>0.4%</b></span>
+            <span>样本 <b>n=20/单元</b></span>
+            <span>耗时 <b>4m12s</b></span>
+          </div>
+          <!-- 覆盖度：直接说明"测了什么 / 没测什么" -->
+          <div class="cov">
+            <div class="c on">性能 ✓</div>
+            <div class="c on w">质量 ⚠</div>
+            <div class="c on">稳定性 ✓</div>
+            <div class="c off">成本 ✕</div>
+            <div class="c on">对比 ✓</div>
+          </div>
+        </div>
+
+        <div class="g g5" style="margin-bottom:14px">
+          <div class="kpi" v-for="k in kpis" :key="k.l">
+            <div class="lb">{{k.l}}</div>
+            <div class="vl">{{k.v}}<span class="u">{{k.u}}</span></div>
+            <div class="ft"><span :class="k.dd">{{k.d}}</span><span>{{k.n}}</span></div>
+          </div>
+        </div>
+
+        <div class="g g2">
+          <div class="panel">
+            <div class="panel-hd"><h2>首字延迟 p50 · 随并发</h2><span class="note">越低越好</span>
+              <div style="margin-left:auto" class="chip">阈值 p50 &gt; 2s</div></div>
+            <div class="panel-bd tight"><div id="ch-c1" class="chart" style="height:238px;padding:8px 10px"></div></div>
+          </div>
+          <div class="panel">
+            <div class="panel-hd"><h2>吞吐 tok/s · 随并发</h2><span class="note">越高越好</span>
+              <div style="margin-left:auto" class="chip">饱和点 ≈ 并发 8</div></div>
+            <div class="panel-bd tight"><div id="ch-c2" class="chart" style="height:238px;padding:8px 10px"></div></div>
+          </div>
+        </div>
+
+        <div class="panel">
+          <div class="panel-hd"><h2>模型池健康</h2><span class="note">同名模型跨供应商聚合</span>
+            <div style="margin-left:auto" class="btn sm gho">中转日志</div></div>
+          <div class="panel-bd tight">
+            <table class="tbl">
+              <thead><tr>
+                <th style="width:180px">模型</th><th style="width:110px">策略</th>
+                <th style="width:150px">供应商</th><th class="num" style="width:96px">成功率</th>
+                <th class="num" style="width:104px">实测首字</th><th style="width:120px">健康度</th><th style="width:74px">状态</th>
+              </tr></thead>
+              <tbody><tr v-for="p in pools" :key="p.n">
+                <td class="nm mono">{{p.n}}</td>
+                <td>{{p.s}}</td>
+                <td class="mono" style="font-size:11.5px">{{p.v}}</td>
+                <td class="num">{{p.sr}}%</td>
+                <td class="num">{{p.tt}}s</td>
+                <td><div class="bar-l" :class="p.hl"><i :style="{width:p.hp+'%'}"></i></div></td>
+                <td><span class="tag" :class="p.cool?'warn':'ok'"><i></i>{{p.cool?'降级':'正常'}}</span></td>
+              </tr></tbody>
+            </table>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============================================================
+           新建测试
+           ============================================================ -->
+      <template v-if="page==='run'">
+        <div class="panel">
+          <div class="panel-hd"><h2>测试范围</h2><span class="note">决定这次会跑多少个单元</span>
+            <div style="margin-left:auto" class="chip acc" v-if="plan">{{plan.cells}} 单元 · {{plan.reqs}} 请求 · 预计 {{plan.eta}}</div>
+          </div>
+          <div class="panel-bd">
+            <div class="frm">
+              <div class="fld"><label>模型 / 目标</label>
+                <el-select v-model="f.targets" multiple collapse-tags collapse-tags-tooltip placeholder="全部（6）" size="small">
+                  <el-option v-for="t in targets" :key="t" :label="t" :value="t"/></el-select>
+                <span class="hint">供应商 + 模型名</span></div>
+              <div class="fld"><label>Prompt 集</label>
+                <el-select v-model="f.prompts" multiple collapse-tags collapse-tags-tooltip placeholder="全部（3）" size="small">
+                  <el-option v-for="p in ['短问答','中问答','长文本']" :key="p" :label="p" :value="p"/></el-select>
+                <span class="hint">决定测试负载特征</span></div>
+              <div class="fld"><label>并发档位</label>
+                <el-input v-model="f.conc" size="small" placeholder="1,2,4,8,16"/>
+                <span class="hint">每档独立闭环</span></div>
+              <div class="fld"><label>每单元样本</label>
+                <el-input-number v-model="f.n" :min="1" :max="200" size="small" controls-position="right"/></div>
+              <div class="fld"><label>预热请求</label>
+                <el-input-number v-model="f.warm" :min="0" :max="20" size="small" controls-position="right"/>
+                <span class="hint">排除冷启动噪声</span></div>
+              <div class="fld"><label>超时（秒）</label>
+                <el-input-number v-model="f.to" :min="10" :max="600" :step="10" size="small" controls-position="right"/></div>
+              <div class="fld"><label>温度</label>
+                <el-input-number v-model="f.temp" :min="0" :max="2" :step="0.1" size="small" controls-position="right"/>
+                <span class="hint">性能测试建议 0</span></div>
+              <div class="fld"><label>混合 Prompt</label>
+                <div style="height:28px;display:flex;align-items:center"><el-switch v-model="f.mix" size="small"/></div>
+                <span class="hint">worker 轮换取题</span></div>
+            </div>
+
+            <div class="div"></div>
+            <div style="display:flex;align-items:center;gap:9px;flex-wrap:wrap">
+              <button class="btn pri" @click="notify('原型：开始测试')">开始测试</button>
+              <button class="btn dgr" :disabled="!running" @click="notify('原型：停止')">停止</button>
+              <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+                <span class="tag acc"><i></i>预算上限 ¥2.00</span>
+                <span class="tag">已用 ¥0.31</span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 质量维度单独成块：可选，容易被忽略 -->
+        <div class="panel">
+          <div class="panel-hd"><h2>质量评测</h2>
+            <span class="tag warn"><i></i>未启用</span>
+            <span class="note">不启用则本次结论只覆盖性能与稳定性</span>
+            <div style="margin-left:auto" class="btn sm gho">+ 绑定评测集</div></div>
+          <div class="panel-bd">
+            <div class="g g3">
+              <div class="fld"><label>评测集</label>
+                <el-select model-value="" placeholder="未选择" size="small" disabled/></div>
+              <div class="fld"><label>评分方式</label>
+                <el-select model-value="" placeholder="未选择" size="small" disabled/></div>
+              <div class="fld"><label>评审模型</label>
+                <el-select model-value="" placeholder="LLM-as-Judge" size="small" disabled/></div>
+            </div>
+            <div class="div"></div>
+            <div class="ins warn"><span class="ico">⚠</span>
+              <span>当前仅有<b>关键词命中（60%）+ 长度达标（40%）</b>这一个粗糙的质量分，无法区分"答对了"和"答得长"。
+                建议至少绑定一个带参考答案的评测集，否则报告里"质量"维度始终为未覆盖。</span></div>
+          </div>
+        </div>
+
+        <div class="panel" v-if="running">
+          <div class="panel-hd"><h2>实时进度</h2>
+            <div style="margin-left:auto" class="note">{{progCells}} / 60 单元 · 并发档 {{curConc}}</div></div>
+          <div class="panel-bd">
+            <div class="prog stripe" style="margin-bottom:13px"><i :style="{width:prog*100+'%'}"></i></div>
+            <div class="tbl-wrap" style="max-height:280px">
+              <table class="tbl">
+                <thead><tr><th>目标</th><th>Prompt</th><th class="num" style="width:60px">并发</th>
+                  <th class="num" style="width:60px">n</th><th class="num" style="width:92px">TTFT p50</th>
+                  <th class="num" style="width:96px">TTFT p90</th><th class="num" style="width:88px">tok/s</th>
+                  <th class="num" style="width:88px">E2E p50</th><th style="width:82px">错误</th></tr></thead>
+                <tbody><tr v-for="c in live" :key="c.k">
+                  <td class="nm mono">{{c.t}}</td><td>{{c.p}}</td>
+                  <td class="num">{{c.c}}</td><td class="num">{{c.n}}</td>
+                  <td class="num">{{c.a}}</td><td class="num">{{c.a9}}</td>
+                  <td class="num">{{c.tp}}</td><td class="num">{{c.e}}</td>
+                  <td><span class="tag" :class="c.et==='ok'?'ok':(c.et==='warn'?'warn':'err')"><i></i>{{c.et==='ok'?'0%':c.et}}</span></td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============================================================
+           报告
+           ============================================================ -->
+      <template v-if="page==='report'">
+        <!-- 1) 结论 -->
+        <div class="verdict">
+          <div class="vh"><span class="tag warn"><i></i>部分达标</span>
+            <b>性能达标，但质量与成本未覆盖 · 2 个模型建议下线</b></div>
+          <p>与基线 <span class="mono">#5c2f10ab</span> 相比：性能维度整体退步 <b style="color:var(--err)">6%</b>（主要来自 glm5.3-air 在并发 ≥8 的排队），
+            稳定性改善 <b style="color:var(--ok)">3%</b>。
+            <b style="color:var(--err)">deepseek-chat</b> 与 <b style="color:var(--err)">glm5.3-air</b> 出现统计显著退步，建议先排查上游再进生产。</p>
+          <div class="vnums">
+            <span>样本 <b>360 请求 / 60 单元</b></span>
+            <span>显著性 <b>Welch t-test p&lt;0.05</b></span>
+            <span>置信区间 <b>±8.4%</b></span>
+            <span>基线 <b>3 天前</b></span>
+          </div>
+          <div class="cov">
+            <div class="c on">性能 ✓</div><div class="c on w">质量 ⚠</div><div class="c on">稳定性 ✓</div>
+            <div class="c off">成本 ✕</div><div class="c on">对比 ✓</div>
+          </div>
+        </div>
+
+        <!-- 2) 五维评分卡：一眼看清"这次测了什么" -->
+        <div class="g g5" style="margin-bottom:14px">
+          <div class="dim" v-for="d in dims" :key="d.k" :class="{na:!d.on}">
+            <div class="dh">
+              <b>{{d.t}}</b>
+              <span class="dv" :class="d.cls">{{d.on?d.v:'—'}}<span class="u" v-if="d.on">/100</span></span>
+            </div>
+            <div class="bar-l" :class="d.bcls" v-if="d.on"><i :style="{width:d.v+'%'}"></i></div>
+            <div class="dsub" v-html="d.s"></div>
+            <div class="ft" style="font-size:11px;color:var(--fg-3);margin-top:auto" v-if="d.on">较基线 <span :class="d.dd">{{d.d}}</span></div>
+            <div class="ft" style="font-size:11px;color:var(--warn);margin-top:auto" v-else>需配置后重跑</div>
+          </div>
+        </div>
+
+        <!-- 3) 分维度 Tab -->
+        <div class="panel">
+          <div class="tabs">
+            <div v-for="t in rtabs" :key="t.k" class="tab" :class="{on:rt===t.k}" @click="rt=t.k">{{t.l}}</div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='lat'">
+            <div class="g g3" style="margin-bottom:14px">
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">TTFT p50</div>
+                <div class="vl">0.31<span class="u">s</span></div><div class="ft d-dn">▲ 6% 较基线</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">TTFT p90</div>
+                <div class="vl">4.21<span class="u">s</span></div><div class="ft d-dn">▲ 38% 较基线</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">TPOT p50</div>
+                <div class="vl">21.4<span class="u">ms</span></div><div class="ft d-eq">— 持平</div></div>
+            </div>
+            <div id="ch-c3" style="height:280px;padding:4px 6px"></div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='thr'">
+            <div class="g g3" style="margin-bottom:14px">
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">峰值吞吐</div>
+                <div class="vl">428<span class="u">tok/s</span></div><div class="ft d-up">@ 并发 8</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">并发增益</div>
+                <div class="vl">3.0<span class="u">×</span></div><div class="ft">并发 1→8</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">16 并发增益</div>
+                <div class="vl">0.1<span class="u">×</span></div><div class="ft d-dn">已饱和</div></div>
+            </div>
+            <div id="ch-c4" style="height:280px;padding:4px 6px"></div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='qual'">
+            <div class="verdict bad" style="margin-bottom:13px">
+              <div class="vh"><span class="tag err"><i></i>未覆盖</span><b>本次运行未启用质量评测</b></div>
+              <p>该维度无数据。下方为<b>若要补齐</b>所需的最小配置，可直接照做：</p>
+            </div>
+            <div class="g g2">
+              <div class="panel" style="margin:0">
+                <div class="panel-hd"><h2>建议接入的评测方式</h2></div>
+                <div class="panel-bd" style="display:flex;flex-direction:column;gap:9px">
+                  <div class="ins info"><span class="ico">①</span><span><b>指令遵循</b>：JSON Schema / 正则 / 字数上限校验。成本≈0，立即可做。</span></div>
+                  <div class="ins info"><span class="ico">②</span><span><b>要点覆盖</b>：参考答案拆成要点，逐条命中算 recall。成本≈0。</span></div>
+                  <div class="ins info"><span class="ico">③</span><span><b>语义相似度</b>：embedding  cosine，与参考答案比。需 embedding 接口。</span></div>
+                  <div class="ins info"><span class="ico">④</span><span><b>LLM-as-Judge</b>：1–5 分（正确性/相关性/完整性）。最接近人评，需评审模型。</span></div>
+                </div>
+              </div>
+              <div class="panel" style="margin:0">
+                <div class="panel-hd"><h2>现有关键词评分的局限</h2></div>
+                <div class="panel-bd tight">
+                  <table class="tbl">
+                    <thead><tr><th>候选输出</th><th class="num" style="width:76px">得分</th><th>问题</th></tr></thead>
+                    <tbody>
+                      <tr><td>正确答案 30 字</td><td class="num best">1.00</td><td>—</td></tr>
+                      <tr><td>答非所问但含关键词 + 300 字废话</td><td class="num worst">0.68</td><td>长度反而加分</td></tr>
+                      <tr><td>胡编的关键词，答错</td><td class="num">0.60</td><td>关键词满分</td></tr>
+                      <tr><td>正确但表述换了词</td><td class="num worst">0.40</td><td>同义即判失败</td></tr>
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='stab'">
+            <div class="g g2" style="margin-bottom:14px">
+              <div>
+                <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:9px">错误分类（当前代码只记 error 字符串，未拆分）</div>
+                <div class="errgrid">
+                  <div class="errb"><div class="lb">超时</div><div class="vl" style="color:var(--warn)">1</div></div>
+                  <div class="errb"><div class="lb">429 限流</div><div class="vl">0</div></div>
+                  <div class="errb"><div class="lb">5xx</div><div class="vl">0</div></div>
+                  <div class="errb"><div class="lb">连接失败</div><div class="vl">0</div></div>
+                  <div class="errb"><div class="lb">内容过滤</div><div class="vl">0</div></div>
+                  <div class="errb"><div class="lb">JSON 解析失败</div><div class="vl" style="color:var(--err)">3</div></div>
+                </div>
+                <div class="ins warn" style="margin-top:11px"><span class="ico">⚠</span>
+                  <span>3 次解析失败被混在"错误率 0.4%"里，无法判断是模型问题还是客户端流式解析 bug。建议
+                    <b>给 RequestResult 加 error_type 字段</b>，这是最低成本的高价值改动。</span></div>
+              </div>
+              <div>
+                <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:9px">延迟分布（p50 / p90 / p99 / max）</div>
+                <table class="tbl">
+                  <thead><tr><th>指标</th><th class="num">p50</th><th class="num">p90</th><th class="num">p99</th><th class="num">max</th></tr></thead>
+                  <tbody><tr v-for="r in dist" :key="r.k"><td class="nm">{{r.k}}</td>
+                    <td class="num">{{r.p50}}</td><td class="num">{{r.p90}}</td>
+                    <td class="num">{{r.p99}}</td><td class="num worst">{{r.mx}}</td></tr></tbody>
+                </table>
+                <div class="ins good" style="margin-top:11px"><span class="ico">✓</span>
+                  <span>p99/p50 比值 <b>14.2×</b>（延迟 0.31s）说明存在长尾。生产上应以 p90 为 SLA 目标。</span></div>
+              </div>
+            </div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='cost'">
+            <div class="verdict bad" style="margin-bottom:13px">
+              <div class="vh"><span class="tag err"><i></i>未覆盖</span><b>未配置模型单价，无法计算成本</b></div>
+              <p>当前代码只记录 token 数，不记录花费。<b>没有成本维度就无法回答"要不要为 20% 提速多付 3 倍钱"</b>这个最常见的选型问题。</p>
+            </div>
+            <table class="tbl">
+              <thead><tr><th>模型</th><th class="num">输入 tok</th><th class="num">输出 tok</th>
+                <th class="num">单次成本</th><th class="num">性能分</th><th class="num">性价比</th><th>建议</th></tr></thead>
+              <tbody><tr v-for="r in costMock" :key="r.m">
+                <td class="nm mono">{{r.m}}</td><td class="num">{{r.i}}</td><td class="num">{{r.o}}</td>
+                <td class="num">—</td><td class="num">{{r.p}}</td><td class="num">—</td>
+                <td><span class="tag" :class="r.c"><i></i>{{r.s}}</span></td></tr></tbody>
+            </table>
+            <div class="ins info" style="margin-top:12px"><span class="ico">ℹ</span>
+              <span>补齐方式：targets.yaml 的 model 项加 <b>price_in / price_out</b>（每百万 token），
+              聚合时顺带算出 cost 列与<b>性价比 = 性能分 / 单次成本</b>。改动约 20 行。</span></div>
+          </div>
+
+          <div class="panel-bd" v-if="rt==='cmp'">
+            <div style="display:flex;align-items:center;gap:10px;margin-bottom:13px;flex-wrap:wrap">
+              <span class="note">基线</span>
+              <el-select model-value="" size="small" style="width:210px">
+                <el-option label="#5c2f10ab · 3 天前 · 6 模型" value="a"/></el-select>
+              <span class="note" style="margin-left:8px">对比</span>
+              <el-select model-value="" size="small" style="width:210px">
+                <el-option label="#7f3a91c2 · 刚刚 · 6 模型" value="b"/></el-select>
+              <div style="margin-left:auto" class="btn sm gho">按显著性排序</div>
+            </div>
+            <table class="tbl">
+              <thead><tr><th>模型</th><th>指标</th><th class="num">基线</th><th class="num">本次</th>
+                <th class="num">Δ</th><th class="num">CI</th><th>判定</th></tr></thead>
+              <tbody><tr v-for="r in cmp" :key="r.m+r.k" :class="{hi:r.v==='worse'}">
+                <td class="nm mono">{{r.m}}</td><td>{{r.k}}</td>
+                <td class="num">{{r.a}}</td><td class="num">{{r.b}}</td>
+                <td class="num" :class="r.v==='worse'?'worst':(r.v==='better'?'best':'')">{{r.d}}</td>
+                <td class="num" style="color:var(--fg-3)">{{r.ci}}</td>
+                <td><span class="tag" :class="r.v==='worse'?'err':(r.v==='better'?'ok':'')"><i></i>
+                  {{r.v==='worse'?'退步':(r.v==='better'?'改善':'持平')}}</span></td></tr></tbody>
+            </table>
+            <div class="ins good" style="margin-top:12px"><span class="ico">✓</span>
+              <span>判定基于 Welch t-test，<b>只有统计显著的差异才标记为退步/改善</b>。
+                现有 compare.py 只按绝对值/百分比比大小，5% 的抖动会被误判为退步。</span></div>
+          </div>
+        </div>
+
+        <!-- 4) 原始数据：折叠，不占版面 -->
+        <div class="panel">
+          <div class="panel-hd" style="cursor:pointer" @click="openRaw=!openRaw">
+            <h2>原始请求明细</h2><span class="note">360 条 · 按并发分组</span>
+            <div style="margin-left:auto" class="chip">{{openRaw?'收起':'展开'}}</div>
+          </div>
+          <div class="panel-bd" v-if="openRaw">
+            <div class="tbl-wrap">
+              <table class="tbl">
+                <thead><tr><th style="width:88px">时间</th><th>目标</th><th>Prompt</th>
+                  <th class="num" style="width:56px">并发</th><th style="width:66px">状态</th>
+                  <th class="num" style="width:84px">TTFT</th><th class="num" style="width:80px">tok/s</th>
+                  <th class="num" style="width:80px">E2E</th><th class="num" style="width:64px">tokens</th>
+                  <th style="width:70px">来源</th></tr></thead>
+                <tbody><tr v-for="(r,i) in raws" :key="i" @click="pickRaw=r" :class="{hi:pickRaw===r}">
+                  <td class="mono" style="color:var(--fg-3)">{{r.t}}</td>
+                  <td class="nm mono">{{r.tg}}</td><td>{{r.p}}</td>
+                  <td class="num">{{r.c}}</td>
+                  <td><span class="tag" :class="r.ok?'ok':'err'"><i></i>{{r.ok?'200':'解析失败'}}</span></td>
+                  <td class="num">{{r.a}}</td><td class="num">{{r.tp}}</td>
+                  <td class="num">{{r.e}}</td><td class="num">{{r.tk}}</td>
+                  <td style="color:var(--fg-3);font-size:11px">{{r.src}}</td>
+                </tr></tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel" v-if="pickRaw">
+          <div class="panel-hd"><h2>单次请求</h2><span class="note mono">{{pickRaw.tg}} · 并发 {{pickRaw.c}} · {{pickRaw.t}}</span>
+            <div style="margin-left:auto" class="btn sm gho" @click="pickRaw=null">关闭</div></div>
+          <div class="panel-bd">
+            <div class="g g4" style="margin-bottom:13px">
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">TTFT</div><div class="vl" style="font-size:19px">{{pickRaw.a}}s</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">tok/s</div><div class="vl" style="font-size:19px">{{pickRaw.tp}}</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">E2E</div><div class="vl" style="font-size:19px">{{pickRaw.e}}s</div></div>
+              <div class="kpi" style="background:var(--surface-2)"><div class="lb">tokens</div><div class="vl" style="font-size:19px">{{pickRaw.tk}}</div></div>
+            </div>
+            <div class="g g2">
+              <div>
+                <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:7px">请求</div>
+                <pre class="reql">{{'POST /v1/chat/completions  stream=true  temp=0\n\n{\n  "model": "'+pickRaw.tg+'",\n  "stream": true,\n  "temperature": 0.0\n}'}}</pre>
+              </div>
+              <div>
+                <div style="font-size:11.5px;color:var(--fg-3);margin-bottom:7px">响应（前 6 chunk）</div>
+                <pre class="reql">{{'data: {"choices":[{"delta":{"content":"'}} +
+                   '递归是函数自己调用自己……\n\ndata: {"choices":[{"delta":{"content":"例"}}'}}</pre>
+              </div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============================================================
+           对话对比
+           ============================================================ -->
+      <template v-if="page==='chat'">
+        <div class="panel">
+          <div class="cmp-pick">
+            <span class="note" style="color:var(--fg-2);font-size:12px">对比模型</span>
+            <el-select v-model="chatSel" multiple collapse-tags collapse-tags-tooltip placeholder="选择 2–4 个" size="small" style="width:360px">
+              <el-option v-for="m in targets" :key="m" :label="m" :value="m"/></el-select>
+            <div style="margin-left:auto;display:flex;gap:8px">
+              <span class="tag">同题同参 · temp 0</span>
+              <button class="btn sm gho" @click="notify('原型：清空')">清空</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="panel chat-w">
+          <div class="chat-sc">
+            <div class="msg-u">用一句话解释什么是递归，并给一个 Python 例子。</div>
+            <div class="mcols" :style="{'grid-template-columns':'repeat('+Math.min(chatSel.length,4)+',minmax(0,1fr))'}">
+              <div class="mcol" v-for="(m,i) in chatSel" :key="m" :style="{'--mc':cols[i%cols.length]}">
+                <div class="mh"><span class="dot" :style="{background:cols[i%cols.length]}"></span><b>{{m}}</b>
+                  <span style="margin-left:auto" class="chip" v-if="i===0">参考</span></div>
+                <div class="mb">{{texts[i]}}<span class="caret" v-if="i===0"></span></div>
+                <div class="mbadges">
+                  <span class="mb2">TTFT {{ttfts[i]}}s</span>
+                  <span class="mb2">{{tpss[i]}} tok/s</span>
+                  <span class="mb2">E2E {{e2es[i]}}s</span>
+                  <span class="mb2">{{toks[i]}} tk</span>
+                  <span class="mb2" style="color:var(--ok)">要点 2/2</span>
+                </div>
+              </div>
+            </div>
+            <div class="div"></div>
+            <div class="msg-u">再给一个非递归但等价的写法，并说明取舍。</div>
+            <div class="mcols" :style="{'grid-template-columns':'repeat('+Math.min(chatSel.length,4)+',minmax(0,1fr))'}">
+              <div class="mcol" v-for="(m,i) in chatSel" :key="m+'_2'" :style="{'--mc':cols[i%cols.length]}">
+                <div class="mh"><span class="dot" :style="{background:cols[i%cols.length]}"></span><b>{{m}}</b></div>
+                <div class="mb" style="color:var(--fg-3);font-size:12px">（已生成 · 点上方 chip 查看）</div>
+                <div class="mbadges"><span class="mb2">TTFT 0.31s</span><span class="mb2">138 tok/s</span>
+                  <span class="mb2" style="color:var(--warn)">要点 1/2</span></div>
+              </div>
+            </div>
+          </div>
+          <div class="chat-in">
+            <el-input v-model="chatIn" placeholder="输入消息，Enter 发送…" @keydown.enter.exact="notify('原型：发送')"/>
+            <button class="btn pri" @click="notify('原型：发送')">发送</button>
+          </div>
+        </div>
+      </template>
+
+      <!-- ============================================================
+           配置
+           ============================================================ -->
+      <template v-if="page==='cfg'">
+        <div class="panel">
+          <div class="tabs">
+            <div v-for="t in ctabs" :key="t.k" class="tab" :class="{on:ct===t.k}" @click="ct=t.k">{{t.l}}</div>
+            <div style="margin-left:auto;display:flex;gap:8px;align-items:center">
+              <span class="tag warn"><i></i>2 处未保存</span>
+              <button class="btn sm pri" @click="notify('原型：保存')">保存</button>
+            </div>
+          </div>
+
+          <div class="panel-bd" v-if="ct==='prov'">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <h2 style="margin:0;font-size:12.5px">供应商与模型</h2>
+              <span class="note">targets.yaml</span>
+              <div style="margin-left:auto;display:flex;gap:7px">
+                <button class="btn sm gho" @click="notify('原型：拉取模型列表')">拉取模型列表</button>
+                <button class="btn sm pri" @click="notify('原型：新增')">+ 新增</button>
+              </div>
+            </div>
+            <div class="prov" v-for="p in provs" :key="p.n">
+              <div class="prov-hd">
+                <span class="dot" :class="p.ok?'ok':'warn'"></span>
+                <span class="nm">{{p.n}}</span>
+                <span class="url">{{p.u}}</span>
+                <span class="chip" v-if="p.k" :class="p.plain?'warn':'ok'">{{p.k}}</span>
+                <span class="tag err" v-else>无密钥</span>
+                <span class="chip">{{p.cnt}} 模型</span>
+                <div style="margin-left:auto;display:flex;gap:6px">
+                  <button class="btn sm gho" @click="notify('原型：连通性测试')">连通性</button>
+                  <button class="btn sm gho" @click="notify('原型：编辑')">编辑</button>
+                </div>
+              </div>
+              <div class="tbl-wrap" style="max-height:none">
+                <table class="tbl">
+                  <thead><tr><th>模型</th><th style="width:64px">温度</th><th style="width:96px">上下文</th>
+                    <th style="width:150px">价格 in/out（¥/M）</th><th style="width:110px">连通性</th><th style="width:60px"></th></tr></thead>
+                  <tbody><tr v-for="m in p.ms" :key="m.n">
+                    <td class="nm mono">{{m.n}}</td><td class="num">{{m.t}}</td><td class="num">{{m.c}}</td>
+                    <td class="num" :class="m.pi?'worst':''">{{m.pi||'— 未配置'}}</td>
+                    <td><span v-if="m.st" class="tag" :class="m.st==='ok'?'ok':'err'"><i></i>{{m.v}}</span>
+                        <span v-else class="note">未测</span></td>
+                    <td><button class="btn sm gho" @click="notify('原型：删除')">删除</button></td>
+                  </tr></tbody>
+                </table>
+              </div>
+            </div>
+            <div class="ins warn" style="margin-top:12px"><span class="ico">⚠</span>
+              <span>「价格 in/out」是<b>成本维度的前置依赖</b>。目前 6 个模型全部为空，因此报告里成本维度恒为未覆盖。填上之后成本列与性价比会自动出现。</span></div>
+          </div>
+
+          <div class="panel-bd" v-if="ct==='prompt'">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <h2 style="margin:0;font-size:12.5px">Prompt 与期望</h2><span class="note">prompts.yaml</span>
+              <div style="margin-left:auto" class="btn sm pri" @click="notify('原型：新增 Prompt')">+ 新增</div>
+            </div>
+            <table class="tbl">
+              <thead><tr><th>名称</th><th style="width:80px">长度档</th><th>内容</th>
+                <th style="width:170px">参考答案要点</th><th style="width:118px">期望关键词</th>
+                <th style="width:78px">最少 token</th><th style="width:78px">类型</th></tr></thead>
+              <tbody><tr v-for="p in prompts" :key="p.l">
+                <td class="nm">{{p.l}}</td><td><span class="chip">{{p.b}}</span></td>
+                <td style="color:var(--fg-2);max-width:280px" class="ell">{{p.x}}</td>
+                <td><span v-if="p.pts&&p.pts.length" class="chip ok">{{p.pts.length}} 要点</span>
+                    <span v-else class="note">未配置</span></td>
+                <td><template v-if="p.kw&&p.kw.length"><span v-for="k in p.kw" :key="k" class="chip" style="margin-right:3px">{{k}}</span></template>
+                    <span v-else class="note">—</span></td>
+                <td class="num">{{p.mt||'—'}}</td>
+                <td><span class="tag" :class="p.c?'warn':''"><i></i>{{p.c?'自定义':'内置'}}</span></td>
+              </tr></tbody>
+            </table>
+            <div class="ins info" style="margin-top:12px"><span class="ico">ℹ</span>
+              <span>「参考答案要点」是打通质量维度的关键：有了要点，就能算 <b>recall = 命中要点 / 总要点</b>，
+              比关键词命中靠谱得多，且不需要额外 API。</span></div>
+          </div>
+
+          <div class="panel-bd" v-if="ct==='eval'">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <h2 style="margin:0;font-size:12.5px">评测集</h2><span class="note">新建：决定报告里"质量"维度能否有分</span>
+              <div style="margin-left:auto" class="btn sm pri" @click="notify('原型：新建评测集')">+ 新建</div>
+            </div>
+            <div class="empty">还没有评测集。<br>
+              <span style="color:var(--fg-3);font-size:12px">评测集 = 一组带参考答案的题目。没有它，报告永远缺一条腿。</span></div>
+            <div class="g g3" style="margin-top:13px">
+              <div class="panel" style="margin:0"><div class="panel-hd"><h2>① 指令遵循</h2><span class="tag ok"><i></i>零成本</span></div>
+                <div class="panel-bd" style="font-size:12.5px;color:var(--fg-2);line-height:1.7">
+                  出题时要求"输出合法 JSON" / "不超过 100 字" / "用英文回答"，然后用
+                  <span class="mono" style="color:var(--accent)">json.loads</span> 或正则校验。<br>
+                  <span style="color:var(--fg-3)">产出：follow_rate（0–1）</span></div></div>
+              <div class="panel" style="margin:0"><div class="panel-hd"><h2>② 要点覆盖</h2><span class="tag ok"><i></i>零成本</span></div>
+                <div class="panel-bd" style="font-size:12.5px;color:var(--fg-2);line-height:1.7">
+                  参考答案拆成 2–5 个要点，逐条在输出中匹配。<br>
+                  <span style="color:var(--fg-3)">产出：point_recall（0–1）+ 逐题命中明细</span></div></div>
+              <div class="panel" style="margin:0"><div class="panel-hd"><h2>③ LLM-as-Judge</h2><span class="tag warn"><i></i>需评审模型</span></div>
+                <div class="panel-bd" style="font-size:12.5px;color:var(--fg-2);line-height:1.7">
+                  用一个更强的模型按 1–5 分打正确性/相关性/完整性，rubric 固定。<br>
+                  <span style="color:var(--fg-3)">产出：judge_score（1–5）+ 评审理由</span></div></div>
+            </div>
+          </div>
+
+          <div class="panel-bd" v-if="ct==='th'">
+            <div style="display:flex;align-items:center;gap:9px;margin-bottom:12px">
+              <h2 style="margin:0;font-size:12.5px">指标与阈值</h2><span class="note">用于报告里的绿/黄/红判定</span>
+            </div>
+            <table class="tbl">
+              <thead><tr><th>指标</th><th style="width:80px">方向</th><th style="width:118px">绿（好）</th>
+                <th style="width:118px">黄（可接受）</th><th style="width:118px">红（差）</th><th style="width:70px">启用</th></tr></thead>
+              <tbody><tr v-for="t in ths" :key="t.k">
+                <td class="nm mono">{{t.k}}</td><td>{{t.d}}</td>
+                <td class="num best">{{t.g}}</td><td class="num">{{t.y}}</td><td class="num worst">{{t.r}}</td>
+                <td><el-switch :model-value="t.on" size="small"/></td></tr></tbody>
+            </table>
+            <div class="div"></div>
+            <h2 style="margin:0 0 9px;font-size:12.5px">统计口径</h2>
+            <div class="frm">
+              <div class="fld"><label>显著性检验</label>
+                <el-select model-value="welch" size="small"><el-option label="Welch t-test" value="w"/></el-select>
+                <span class="hint">不显著则判"持平"</span></div>
+              <div class="fld"><label>置信水平</label>
+                <el-select model-value="95" size="small"><el-option label="95%" value="9"/></el-select>
+                <span class="hint">影响 better/worse 判定</span></div>
+              <div class="fld"><label>最小样本</label>
+                <el-input-number :model-value="20" :min="5" :max="200" size="small" controls-position="right"/>
+                <span class="hint">低于此值只报原始值不判定</span></div>
+            </div>
+          </div>
+        </div>
+      </template>
+
+    </div></div>
+  </div>
+</div>
+<div class="proto"><b>原型</b> UI 重构方案 · 数据为示意</div>
+</div>
+
+<script src="https://unpkg.com/vue@3.4.31/dist/vue.global.prod.js"></script>
+<script src="https://unpkg.com/element-plus@2.7.6/dist/index.full.min.js"></script>
+<script src="https://unpkg.com/echarts@5.5.0/dist/echarts.min.js"></script>
+<script>
+const { createApp, ref, computed, nextTick, onMounted, onBeforeUnmount, watch } = Vue;
+
+createApp({
+  setup(){
+    const page = ref('dash');
+    const running = ref(false);
+    const prog = ref(0.62);
+    const rt = ref('lat');
+    const ct = ref('prov');
+    const openRaw = ref(false);
+    const pickRaw = ref(null);
+    const chatSel = ref(['glm5.3-flash','glm5.3-air','deepseek-chat']);
+    const chatIn = ref('');
+
+    const navA = [
+      {k:'dash', i:'◱', l:'概览'},
+      {k:'run',  i:'▶', l:'新建测试', c: running.value?1:null},
+    ];
+    const navB = [
+      {k:'report', i:'▤', l:'报告'},
+      {k:'chat',   i:'✦', l:'对话对比'},
+    ];
+    const navC = [ {k:'cfg', i:'⚙', l:'配置'} ];
+
+    const cur = computed(()=>{
+      const all = [...navA,...navB,...navC].find(x=>x.k===page.value);
+      const d = { dash:'最近一次测试的结论、覆盖度与趋势',
+                  run:'选择范围与维度，启动一次基准',
+                  report:'五维评分 + 维度明细 + 原始数据',
+                  chat:'同题同参并排，看输出与性能差异',
+                  cfg:'供应商、Prompt、评测集、阈值' }[page.value];
+      return {l: all?all.l:'', d};
+    });
+
+    const kpis = [
+      {l:'覆盖模型', v:'6', u:'',   d:'▲ 2',    n:'较基线', dd:'d-up'},
+      {l:'请求数',   v:'360', u:'', d:'样本 20/单元', dd:'d-eq'},
+      {l:'TTFT p50', v:'0.31', u:'s', d:'▲ 6%', n:'较基线', dd:'d-dn'},
+      {l:'峰值吞吐', v:'428', u:'t/s', d:'@ 并发 8', dd:'d-up'},
+      {l:'错误率',   v:'0.4', u:'%', d:'1 条超时', n:'+ 3 条解析失败', dd:'d-eq'},
+    ];
+
+    const pools = [
+      {n:'glm5.3-flash', s:'weighted', v:'BigModel / vLLM / 百炼', sr:99.8, tt:'0.284', hp:99, hl:'good', cool:false},
+      {n:'glm5.3-air',   s:'weighted', v:'BigModel / 百炼',          sr:97.2, tt:'0.884', hp:71, hl:'mid',  cool:true },
+      {n:'deepseek-chat',s:'priority', v:'DeepSeek 官方 / SiliconFlow',sr:96.4, tt:'0.521', hp:60, hl:'bad', cool:true },
+      {n:'gpt-4o',       s:'priority', v:'OpenAI / Azure',            sr:100,  tt:'0.331', hp:100,hl:'good', cool:false},
+      {n:'qwen3-max',    s:'weighted', v:'DashScope / 硅基',          sr:99.1, tt:'0.412', hp:88, hl:'good', cool:false},
+    ];
+
+    const dims = [
+      {k:'perf', t:'性能', on:true,  v:72, cls:'', bcls:'mid', dd:'d-dn', d:'▼ 6%',
+       s:'TTFT p50 <em>0.31s</em> · p90 <em>4.21s</em><br>TPOT <em>21.4ms</em> · 峰值 <em>428 t/s</em>'},
+      {k:'qual', t:'质量', on:false, v:0,  cls:'', bcls:'',  dd:'',
+       s:'未绑定评测集<br>仅有关键词粗分，不可用'},
+      {k:'stab', t:'稳定性', on:true, v:91, cls:'best', bcls:'good', dd:'d-up', d:'▲ 3%',
+       s:'错误率 <em>0.4%</em> · 无 429/5xx<br>p99/p50 <em>14.2×</em> 长尾偏大'},
+      {k:'cost', t:'成本', on:false, v:0,  cls:'', bcls:'',  dd:'',
+       s:'模型单价未配置<br>无法算性价比'},
+      {k:'cmp',  t:'对比', on:true,  v:64, cls:'worst', bcls:'bad', dd:'d-dn', d:'▼ 11%',
+       s:'2 模型统计显著退步<br><em>air</em> 排队 · <em>deepseek</em> 超时'},
+    ];
+
+    const rtabs = [
+      {k:'lat',  l:'延迟'},
+      {k:'thr',  l:'吞吐'},
+      {k:'qual', l:'质量'},
+      {k:'stab', l:'稳定性'},
+      {k:'cost', l:'成本'},
+      {k:'cmp',  l:'对比基线'},
+    ];
+
+    const dist = [
+      {k:'TTFT',   p50:'0.31s', p90:'1.24s', p99:'4.21s', mx:'6.80s'},
+      {k:'TPOT',   p50:'21.4ms',p90:'38.2ms',p99:'71.0ms',mx:'120ms'},
+      {k:'E2E',    p50:'1.47s', p90:'3.92s', p99:'7.14s', mx:'11.2s'},
+    ];
+
+    const costMock = [
+      {m:'glm5.3-flash', i:'24.1K', o:'8.9K', p:92, s:'性价比候选', c:'ok'},
+      {m:'glm5.3-air',   i:'24.4K', o:'9.2K', p:61, s:'性能已饱和', c:'warn'},
+      {m:'deepseek-chat',i:'24.0K', o:'9.4K', p:55, s:'建议下线',   c:'err'},
+    ];
+
+    const cmp = [
+      {m:'glm5.3-flash', k:'TTFT p50', a:'0.298', b:'0.284', d:'−4.7%', v:'better', ci:'±3.1%'},
+      {m:'glm5.3-flash', k:'tok/s',    a:'138.2', b:'141.2', d:'+2.2%', v:'same',   ci:'±4.8%'},
+      {m:'glm5.3-air',   k:'TTFT p50 @8', a:'1.284', b:'1.402', d:'+9.2%', v:'same', ci:'±7.4%'},
+      {m:'glm5.3-air',   k:'TTFT p90 @16',a:'3.610',b:'5.204', d:'+44%', v:'worse',  ci:'±12%'},
+      {m:'deepseek-chat',k:'TTFT p50',  a:'0.512', b:'0.521', d:'+1.8%', v:'same',   ci:'±5.2%'},
+      {m:'deepseek-chat',k:'错误率',     a:'0.0%',  b:'0.4%',  d:'+0.4pt',v:'worse',  ci:'±0.3pt'},
+      {m:'qwen3-max',    k:'tok/s',      a:'124.1', b:'126.8', d:'+2.2%', v:'same',   ci:'±6.1%'},
+    ];
+
+    const raws = [
+      {t:'09:41:22.104', tg:'glm5.3-flash', p:'中问答', c:8,  ok:true,  a:'0.284', tp:'142.6', e:'1.47', tk:168, src:'usage'},
+      {t:'09:41:19.882', tg:'glm5.3-flash', p:'中问答', c:8,  ok:true,  a:'0.301', tp:'139.8', e:'1.52', tk:132, src:'usage'},
+      {t:'09:41:16.331', tg:'deepseek-chat',p:'长文本', c:16, ok:false, a:'—',     tp:'—',     e:'120',  tk:0,   src:'parse'},
+      {t:'09:41:15.004', tg:'deepseek-chat',p:'长文本', c:16, ok:true,  a:'2.410', tp:'88.7',  e:'4.82', tk:204, src:'usage'},
+      {t:'09:41:11.772', tg:'glm5.3-air',  p:'短问答', c:4,  ok:true,  a:'0.412', tp:'96.4',  e:'1.21', tk:96,   src:'tiktoken'},
+      {t:'09:41:08.220', tg:'glm5.3-air',  p:'短问答', c:4,  ok:true,  a:'0.508', tp:'94.1',  e:'1.33', tk:88,   src:'tiktoken'},
+      {t:'09:41:05.014', tg:'qwen3-max',   p:'中问答', c:2,  ok:true,  a:'0.412', tp:'124.1', e:'1.88', tk:174, src:'usage'},
+      {t:'09:41:02.771', tg:'gpt-4o',      p:'短问答', c:1,  ok:true,  a:'0.331', tp:'118.3', e:'0.94', tk:142, src:'usage'},
+    ];
+
+    const targets = ['glm5.3-flash','glm5.3-air','glm5.3-plus','deepseek-chat','qwen3-max','gpt-4o'];
+    const f = ref({ targets:[], prompts:[], conc:'1,2,4,8,16', n:20, warm:2, to:120, temp:0, mix:true });
+
+    const plan = computed(()=>{
+      const nt = f.value.targets.length || 6, np = f.value.prompts.length || 3;
+      const nc = f.value.conc.split(',').filter(x=>x.trim()).length || 5;
+      const cells = nt*np*nc, reqs = cells*f.value.n;
+      return { cells, reqs, eta: Math.max(1, Math.round(reqs*0.7/60))+' min' };
+    });
+
+    const live = [
+      {k:1,t:'glm5.3-flash',p:'短问答',c:1,n:20,a:'0.284',a9:'0.412',tp:'141.2',e:'1.47',et:'ok'},
+      {k:2,t:'glm5.3-flash',p:'中问答',c:1,n:20,a:'0.298',a9:'0.441',tp:'138.7',e:'1.62',et:'ok'},
+      {k:3,t:'glm5.3-flash',p:'长文本',c:1,n:20,a:'0.401',a9:'0.612',tp:'122.4',e:'2.84',et:'ok'},
+      {k:4,t:'glm5.3-flash',p:'短问答',c:2,n:20,a:'0.291',a9:'0.428',tp:'168.3',e:'1.51',et:'ok'},
+      {k:5,t:'glm5.3-air',p:'短问答',c:1,n:20,a:'0.412',a9:'0.588',tp:'96.4',e:'1.21',et:'ok'},
+      {k:6,t:'deepseek-chat',p:'长文本',c:16,n:20,a:'2.410',a9:'5.204',tp:'88.7',e:'4.82',et:'2/20 超时'},
+      {k:7,t:'qwen3-max',p:'中问答',c:4,n:20,a:'0.512',a9:'0.884',tp:'124.1',e:'1.94',et:'ok'},
+    ];
+    const progCells = computed(()=> Math.round(prog.value*60) );
+
+    const cols = ['#5b8cff','#3fb950','#d29922','#a371f7'];
+    const texts = [
+      '递归是函数（或过程）在执行过程中直接或间接地调用自己。它把大问题拆成同形态的小问题，代价是需要一个明确的终止条件，否则会无限展开。\n\n例：\n```python\ndef fact(n):\n    return 1 if n <= 1 else n * fact(n - 1)\n```',
+      '递归是函数自己调用自己来解决问题的方式，核心是「大问题拆小问题 + 明确的 base case」。\n\n```python\ndef fact(n):\n    if n < 2:\n        return 1\n    return n * fact(n - 1)\n```\n适合树、图、分治类问题。',
+      '递归：函数调用自身处理更小的子问题，靠 base case 收口。\n\n例：`def f(n): return 1 if n==0 else n*f(n-1)`',
+      '递归即自调用求解，本质是把规模 n 的问题化为规模 n-1 的同类问题，直到触发终止条件。\n\n```python\ndef fib(n):\n    a, b = 0, 1\n    for _ in range(n): a, b = b, a + b\n    return a\n```\n',
+    ];
+    const ttfts = ['0.284s','0.412s','0.521s','0.331s'];
+    const tpss  = ['141.2','96.4','88.7','118.3'];
+    const e2es  = ['1.47s','1.21s','2.10s','0.94s'];
+    const toks  = ['168','96','204','142'];
+
+    const prompts = [
+      {l:'短问答',  b:'short',  x:'用一句话解释什么是递归。',                 kws:[],        mt:30,  c:false, pts:null},
+      {l:'中问答',  b:'medium', x:'写一个 Python 函数判断字符串是否为回文…',  kws:['def','return'], mt:120, c:false, pts:null},
+      {l:'长文本',  b:'long',   x:'（约 3000 token 上下文）总结以下文档…',     kws:[],        mt:200, c:true,  pts:['要点A','要点B','要点C']},
+    ];
+
+    const provs = [
+      {n:'智谱 BigModel', u:'https://open.bigmodel.cn/api/paas/v4', k:'sk-…4f2a', plain:false, ok:true, cnt:4,
+       ms:[{n:'glm5.3-flash',t:'0.0',c:'128K',pi:'0.5 / 2.0', st:'ok', v:'0.284s'},
+           {n:'glm5.3-air',  t:'0.0',c:'128K',pi:'',      st:'ok', v:'0.412s'},
+           {n:'glm5.3-plus', t:'0.0',c:'128K',pi:'',      st:'err',v:'429'}]},
+      {n:'本地 vLLM',     u:'http://127.0.0.1:8000/v1',     k:'(免密)',  plain:true,  ok:true, cnt:2,
+       ms:[{n:'qwen3-32b',  t:'0.0',c:'32K', pi:'',       st:'ok', v:'0.098s'}]},
+      {n:'DeepSeek 官方', u:'https://api.deepseek.com/v1',   k:'env:DEEPSEEK_KEY', plain:true, ok:true, cnt:2,
+       ms:[{n:'deepseek-chat',t:'0.0',c:'64K',pi:'2.0 / 8.0',st:'ok', v:'0.521s'}]},
+    ];
+
+    const ctabs = [ {k:'prov',l:'供应商'}, {k:'prompt',l:'Prompt 与期望'}, {k:'eval',l:'评测集'}, {k:'th',l:'阈值与口径'} ];
+    const ths = [
+      {k:'ttft_p50',  d:'越低越好', g:'< 0.5s', y:'0.5–2s', r:'> 2s',    on:true},
+      {k:'ttft_p90',  d:'越低越好', g:'< 1.5s', y:'1.5–4s', r:'> 4s',    on:true},
+      {k:'tps',       d:'越高越好', g:'> 100',  y:'30–100', r:'< 30',    on:true},
+      {k:'error_rate',d:'越低越好', g:'0%',     y:'0–2%',   r:'> 2%',    on:true},
+      {k:'quality',   d:'越高越好', g:'> 0.8',  y:'0.6–0.8',r:'< 0.6',   on:false},
+      {k:'cost_1k',   d:'越低越好', g:'< ¥0.5', y:'0.5–2',  r:'> ¥2',   on:false},
+    ];
+
+    function go(k){ page.value = k; }
+    function notify(m){ console.log('[原型]', m); }
+
+    /* charts */
+    let cs = [];
+    const AX = { axisLine:{lineStyle:{color:'#2a303a'}}, axisLabel:{color:'#667085',fontSize:11},
+                 splitLine:{lineStyle:{color:'#1a1e24'}} };
+    const TT = { trigger:'axis', backgroundColor:'#171b21', borderColor:'#2a303a',
+                 textStyle:{color:'#e6e9ee',fontSize:12}, axisPointer:{type:'line',lineStyle:{color:'#39414d'}} };
+    const SER = ['#5b8cff','#3fb950','#d29922','#a371f7','#f85149'];
+
+    function mk(el, opt){ const c = echarts.init(el); c.setOption(opt); cs.push(c); }
+    function line(el, cats, series, extra){
+      mk(el, Object.assign({
+        grid:{left:52,right:20,top:28,bottom:34},
+        tooltip:TT, legend:{textStyle:{color:'#98a2b3',fontSize:11},top:0,right:0,itemWidth:14,itemHeight:2},
+        xAxis:{type:'category',data:cats,boundaryGap:false,...AX,splitLine:{show:false}},
+        yAxis:{type:'value',...AX,axisLabel:{color:'#667085',fontSize:11,formatter:v=>v+''}},
+        series
+      }, extra||{}));
+    }
+    function q(id){ return document.getElementById('ch-'+id); }
+    function render(){
+      cs.forEach(c=>c.dispose()); cs = [];
+      nextTick(()=>{
+        const conc = ['1','2','4','8','16'];
+        if (page.value==='dash'){
+          const t1 = q('c1');
+          if (t1) line(t1, conc, [
+            {name:'glm5.3-flash',type:'line',smooth:true,data:[0.284,0.298,0.312,0.361,0.428],lineStyle:{width:2,color:SER[0]},itemStyle:{color:SER[0]}},
+            {name:'glm5.3-air',  type:'line',smooth:true,data:[0.412,0.508,0.884,1.402,2.204],lineStyle:{width:2,color:SER[1]},itemStyle:{color:SER[1]}},
+            {name:'deepseek-chat',type:'line',smooth:true,data:[0.521,0.688,0.912,1.204,1.688],lineStyle:{width:2,color:SER[2]},itemStyle:{color:SER[2]}},
+          ], { yAxis:{type:'value',...AX, name:'s',nameTextStyle:{color:'#667085',fontSize:10},axisLabel:{color:'#667085',fontSize:11}} });
+          const t2 = q('c2');
+          if (t2) line(t2, conc, [
+            {name:'glm5.3-flash',type:'line',smooth:true,areaStyle:{color:'rgba(91,140,255,.12)'},data:[141,168,238,428,441],lineStyle:{width:2,color:SER[0]},itemStyle:{color:SER[0]}},
+            {name:'glm5.3-air',  type:'line',smooth:true,data:[96,118,164,251,262],lineStyle:{width:2,color:SER[1]},itemStyle:{color:SER[1]}},
+            {name:'deepseek-chat',type:'line',smooth:true,data:[88,104,142,198,206],lineStyle:{width:2,color:SER[2]},itemStyle:{color:SER[2]}},
+          ], { yAxis:{type:'value',...AX,axisLabel:{color:'#667085',fontSize:11,formatter:v=>v+''}} });
+        }
+        if (page.value==='report'){
+          const t3 = (rt.value==='lat') ? q('c3') : null;
+          if (t3) mk(t3, {
+            grid:{left:52,right:20,top:28,bottom:34},
+            tooltip:TT, legend:{textStyle:{color:'#98a2b3',fontSize:11},top:0,right:0,itemWidth:14,itemHeight:2},
+            xAxis:{type:'category',data:conc,...AX,splitLine:{show:false}},
+            yAxis:[{type:'value',name:'p50 (s)',nameTextStyle:{color:'#667085',fontSize:10},...AX},
+                   {type:'value',name:'p90 (s)',nameTextStyle:{color:'#667085',fontSize:10},...AX,splitLine:{show:false}}],
+            series:[
+              {name:'TTFT p50',type:'line',smooth:true,data:[0.284,0.298,0.312,0.361,0.428],lineStyle:{width:2,color:SER[0]},itemStyle:{color:SER[0]}},
+              {name:'TTFT p90',type:'line',smooth:true,data:[0.62,0.78,1.14,2.41,5.20],lineStyle:{width:2,color:SER[2],type:'dashed'},itemStyle:{color:SER[2]}},
+              {name:'阈值 2s',type:'line',data:[2,2,2,2,2],lineStyle:{width:1,color:'#f85149',type:'dotted'},itemStyle:{color:'#f85149'},symbol:'none'},
+            ]
+          });
+          const t4 = (rt.value==='thr') ? q('c4') : null;
+          if (t4) mk(t4, {
+            grid:{left:52,right:20,top:28,bottom:34},
+            tooltip:TT, legend:{textStyle:{color:'#98a2b3',fontSize:11},top:0,right:0,itemWidth:14,itemHeight:2},
+            xAxis:{type:'category',data:conc,...AX,splitLine:{show:false}},
+            yAxis:{type:'value',...AX},
+            series:[
+              {name:'glm5.3-flash',type:'bar',data:[141,168,238,428,441],barMaxWidth:16,itemStyle:{color:SER[0],borderRadius:[3,3,0,0]}},
+              {name:'glm5.3-air',  type:'bar',data:[96,118,164,251,262],barMaxWidth:16,itemStyle:{color:SER[1],borderRadius:[3,3,0,0]}},
+              {name:'deepseek-chat',type:'bar',data:[88,104,142,198,206],barMaxWidth:16,itemStyle:{color:SER[2],borderRadius:[3,3,0,0]}},
+            ]
+          });
+        }
+      });
+    }
+    watch(page, () => setTimeout(render, 30));
+    watch(rt,    () => setTimeout(render, 30));
+    onMounted(render);
+    onBeforeUnmount(()=> cs.forEach(c=>c.dispose()));
+    window.addEventListener('resize', ()=> cs.forEach(c=>c.resize()));
+
+    return { page, running, prog, progCells, cur, navA, navB, navC, go, notify,
+      kpis, pools, dims, rtabs, rt, dist, costMock, cmp, raws, openRaw, pickRaw,
+      f, plan, live, targets, chatSel, chatIn, texts, ttfts, tpss, e2es, toks, cols,
+      ctabs, ct, prompts, provs, ths };
+  }
+}).use(ElementPlus).mount('#app');
+</script>
+</body>
+</html>

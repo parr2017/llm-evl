@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 05 — Human-in-the-loop 与状态持久化</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="lesson-nav">
+      <span>📚 多Agent协同开发入门</span>
+      <a href="0001-what-are-multi-agent-systems.html">← Lesson 01</a>
+      <a href="0002-langgraph-core-concepts.html">← Lesson 02</a>
+      <a href="0003-tool-calling.html">← Lesson 03</a>
+      <a href="0004-conditional-routing-and-loops.html">← Lesson 04</a>
+      <a href="#">GLOSSARY</a>
+      <a href="#">RESOURCES</a>
+    </nav>
+
+    <header class="lesson-header">
+      <div class="lesson-number">Lesson 05 · Phase 1</div>
+      <h1 class="lesson-title">Human-in-the-loop 与状态持久化</h1>
+      <div class="lesson-meta">
+        <span>⏱ 约50分钟</span>
+        <span>📝 包含2个练习</span>
+      </div>
+    </header>
+
+    <!-- Section 1 -->
+    <h2>一、为什么要 Human-in-the-loop？</h2>
+
+    <p>到目前为止，我们构建的 Agent 工作流都是全自动的。但在真实场景中，很多关键决策需要人类确认：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li>代码评审：AI 发现了安全问题，是否标记为阻塞？</li>
+      <li>内容发布：文章写好了，人类编辑最后审核一次？</li>
+      <li>敏感操作：要删除数据库记录，先确认一下？</li>
+    </ul>
+
+    <p><strong>Human-in-the-loop（人在回路）</strong>的核心思想是：让 Agent 处理大部分工作，但在关键时刻暂停，等待人类决策。</p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 关键认知</div>
+      HITL 不是"Agent 做不了才找人"，而是<strong>主动设计</strong>的协作模式——Agent 负责高效执行，人类负责价值判断。
+    </div>
+
+    <!-- Section 2 -->
+    <h2>二、interrupt() 深入</h2>
+
+    <p>Lesson 04 中已经初步接触了 <code>interrupt()</code>，现在深入理解它的工作方式。</p>
+
+    <h3>基本用法</h3>
+    <pre><code>from langgraph.types import interrupt
+
+def human_review_node(state: GraphState) -> dict:
+    decision = interrupt({
+        "type": "approval_request",
+        "content": state["draft"],
+        "context": {
+            "score": state["score"],
+            "topic": state["topic"]
+        }
+    })
+    # decision 是人类输入的值
+    return {"human_decision": decision}</code></pre>
+
+    <h3>执行流程</h3>
+    <pre><code>Step 1: 工作流执行到 human_review_node
+    ↓
+Step 2: 遇到 interrupt() → 工作流暂停，抛出 Checkpoint
+    ↓
+Step 3: 外部系统（或你手动）获取 Checkpoint 中的中断信息
+    ↓
+Step 4: 人类做出决策，通过 API 提交结果
+    ↓
+Step 5: 调用 graph.invoke(..., config={"configurable": {...}}) 恢复执行
+    ↓
+Step 6: interrupt() 返回人类输入的值，工作流继续</code></pre>
+
+    <h3>在 LangGraph 中恢复执行</h3>
+    <pre><code># 运行到中断点
+result = app.invoke({"topic": "LangGraph"})
+
+# 获取最新的 checkpoint（中断信息）
+checkpoint = app.get_state(config)
+
+# 人类审核后提交结果
+updated_config = app.update_state(
+    config,
+    {"human_decision": "approve"}  # 或 "reject"
+)
+
+# 恢复执行
+final_result = app.invoke(None, config=updated_config)</code></pre>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">⚠️ 重要概念：Config 和 Checkpoint</div>
+      每次 <code>invoke()</code> 会返回一个 <code>config</code> 对象，里面包含当前执行的 thread_id 和 checkpoint。这个 config 必须保存下来，用于后续恢复执行。不要丢弃它！
+    </div>
+
+    <!-- Section 3 -->
+    <h2>三、完整示例：带人工审核的代码评审系统</h2>
+
+    <pre><code>import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import interrupt, Command
+from typing import TypedDict
+import json
+
+load_dotenv()
+
+# ===== 状态 =====
+class ReviewState(TypedDict):
+    code: str
+    agent_review: str
+    human_feedback: str
+    final_verdict: str
+
+# ===== 节点 =====
+
+def code_reviewer_node(state: ReviewState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    response = llm.invoke([
+        ("system", """你是资深代码评审员。请审查以下代码，重点关注：
+1. 安全漏洞
+2. 性能问题  
+3. 代码风格
+4. 潜在 bug
+
+请输出结构化 JSON：{"issues": [...], "severity": "high|medium|low", "suggestion": "..."}"""),
+        ("user", f"请审查以下代码：\n\n{state['code']}")
+    ])
+    
+    try:
+        review = json.loads(response.content)
+    except:
+        review = {"issues": [response.content], "severity": "medium", "suggestion": "需人工复核"}
+    
+    return {"agent_review": json.dumps(review, ensure_ascii=False, indent=2)}
+
+def human_approval_node(state: ReviewState) -> dict:
+    """Human-in-the-loop 节点：等待人类决策"""
+    decision = interrupt({
+        "message": "代码评审完成，请审核 AI 的评审结果",
+        "review": state["agent_review"],
+        "options": ["approve", "reject", "needs_revision"]
+    })
+    return {"human_feedback": decision}
+
+def finalize_node(state: ReviewState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    
+    verdict_map = {
+        "approve": "✅ 通过 - 代码质量良好，可以合入主分支",
+        "reject": "❌ 拒绝 - 存在严重问题，需要重新开发",
+        "needs_revision": "⚠️ 需修改 - 建议按意见修改后重新提交"
+    }
+    
+    base_verdict = verdict_map.get(state["human_feedback"], "⚠️ 未知决策")
+    
+    response = llm.invoke(f"""基于以下信息生成最终评审报告：
+
+【AI评审结果】
+{state["agent_review"]}
+
+【人类决策】
+{state["human_feedback"]}
+
+请直接输出最终 verdict，格式：{base_verdict}
+附加2-3条具体行动建议。""")
+    
+    return {"final_verdict": response.content.strip()}
+
+# ===== 路由 =====
+def route_after_approval(state: ReviewState) -> str:
+    if state["human_feedback"] == "approve":
+        return "finalize"
+    elif state["human_feedback"] == "reject":
+        return "finalize"
+    else:  # needs_revision
+        return "finalize"  # 也可以回到 code_reviewer 重新评审
+
+# ===== 构建 =====
+workflow = StateGraph(ReviewState)
+workflow.add_node("reviewer", code_reviewer_node)
+workflow.add_node("human_approval", human_approval_node)
+workflow.add_node("finalize", finalize_node)
+
+workflow.add_edge(START, "reviewer")
+workflow.add_edge("reviewer", "human_approval")
+workflow.add_conditional_edges(
+    "human_approval",
+    route_after_approval,
+    {"finalize": "finalize"}
+)
+workflow.add_edge("finalize", END)
+
+app = workflow.compile()
+
+# ===== 运行（两步走：先跑 + 再恢复）=====
+if __name__ == "__main__":
+    # 第一步：运行到 human_approval 节点，遇到 interrupt 暂停
+    config = {"configurable": {"thread_id": "review-session-001"}}
+    result = app.invoke(
+        {"code": "def hello(): print('world')"},
+        config=config
+    )
+    print("=== 已暂停，等待人工决策 ===")
+    print("当前状态:", result)
+    
+    # 第二步：人类审核后恢复
+    # 实际项目中这里会有 API 接收人类输入
+    # 演示中直接模拟
+    updated_config = app.update_state(
+        config,
+        {"human_feedback": "approve"}
+    )
+    final = app.invoke(None, config=updated_config)
+    print("\n=== 最终评审结果 ===")
+    print(final["final_verdict"])</code></pre>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 实际项目中的 HITL 模式</div>
+      在生产环境中，interrupt 通常配合 Webhook 或 API 使用：
+      <ol style="margin-top:8px; padding-left:20px;">
+        <li>Agent 运行到 interrupt → 发送通知给人类（邮件/Slack/弹窗）</li>
+        <li>人类在 UI 中点击"通过"或"拒绝"</li>
+        <li>前端调用 API 提交决策 → 后端调用 update_state + invoke 恢复</li>
+      </ol>
+    </div>
+
+    <!-- Section 4 -->
+    <h2>四、状态持久化：Checkpoint 机制</h2>
+
+    <p>LangGraph 内置了<strong>自动检查点（Checkpointing）</strong>机制——每次节点执行完毕后，当前的状态快照会自动保存。</p>
+
+    <h3>为什么需要 Checkpoint？</h3>
+    <ul style="margin:12px 0 16px 24px;">
+      <li><strong>恢复执行</strong>：human-in-the-loop 中断后，可以从断点恢复，不需要从头开始</li>
+      <li><strong>时间旅行</strong>：查看历史任意时刻的状态</li>
+      <li><strong>并发安全</strong>：多线程执行时保证状态一致性</li>
+    </ul>
+
+    <h3>使用内存 Checkpointer（开发阶段）</h3>
+    <pre><code>from langgraph.checkpoint.memory import MemorySaver
+
+# 创建带记忆的图
+memory = MemorySaver()
+app = workflow.compile(checkpointer=memory)</code></pre>
+
+    <h3>查看和导航 Checkpoint</h3>
+    <pre><code># 获取当前状态
+state = app.get_state(config)
+print(state.values)        # 当前状态数据
+print(state.next)          # 下一个要执行的节点
+print(state.metadata)      # 元数据（迭代次数、耗时等）
+
+# 获取历史所有 checkpoint
+for snapshot in app.get_history(config):
+    print(snapshot.values)
+
+# 回退到上一个 checkpoint（时间旅行）
+prev_config = app.get_previous_config(config)
+prev_state = app.get_state(prev_config)
+print(prev_state.values)</code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 生产环境推荐</div>
+      开发阶段用 <code>MemorySaver</code>（内存），生产环境换成 <code>SqliteSaver</code> 或 <code>PostgresSaver</code>（磁盘/数据库），只需改一行代码。
+    </div>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/concepts/persistence/">LangGraph Persistence 文档</a></p>
+
+    <!-- Section 5 -->
+    <h2>五、常见错误</h2>
+
+    <ol style="margin:12px 0 16px 24px; line-height:2;">
+      <li><strong>丢弃 config</strong> —— 每次 invoke 返回的 config 必须保存，否则无法恢复中断的工作流。</li>
+      <li><strong>误以为 interrupt 是异常</strong> —— interrupt 是预期行为，不是错误。不要用 try-except 包裹它。</li>
+      <li><strong>同一线程多次 interrupt</strong> —— 一个工作流实例在同一时间只能有一个活跃的中断。恢复后再调用 update_state 才能再次中断。</li>
+      <li><strong>状态未序列化</strong> —— Checkpoint 需要序列化状态，避免在状态里放文件句柄、网络连接等非序列化对象。</li>
+    </ol>
+
+    <!-- Section 6: Quiz -->
+    <h2>六、自检练习</h2>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-question">Q1: interrupt() 被调用后，工作流会发生什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q1" value="a"> A. 工作流崩溃并抛出异常</label></li>
+        <li><label><input type="radio" name="q1" value="b"> B. 工作流继续执行，interrupt 的结果被忽略</label></li>
+        <li><label><input type="radio" name="q1" value="c"> C. 工作流暂停，生成 Checkpoint，等待外部输入后恢复</label></li>
+        <li><label><input type="radio" name="q1" value="d"> D. 工作流自动跳过该节点</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-question">Q2: 如何恢复一个被 interrupt 暂停的工作流？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q2" value="a"> A. 重新调用 app.invoke() 从头开始</label></li>
+        <li><label><input type="radio" name="q2" value="b"> B. 调用 app.update_state() 提交决策，再用原 config 调用 app.invoke(None)</label></li>
+        <li><label><input type="radio" name="q2" value="c"> C. 重启整个程序</label></li>
+        <li><label><input type="radio" name="q2" value="d"> D. 删除 Checkpoint 文件</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <!-- Section 7: 实践任务 -->
+    <h2>七、实践任务</h2>
+
+    <ul class="checklist">
+      <li><strong>任务 A</strong>：运行上面的代码示例，理解 interrupt 暂停和恢复的完整流程</li>
+      <li><strong>任务 B</strong>：将 <code>MemorySaver</code> 加入代码，用 <code>get_state()</code> 查看每个 checkpoint 的状态变化</li>
+      <li><strong>任务 C</strong>：扩展示例，在 human_approval 节点之后添加一个条件边——如果人类选择"needs_revision"，回到 reviewer 节点重新评审（最多3轮）</li>
+    </ul>
+
+    <!-- Section 8: 下一步 -->
+    <div class="lesson-footer">
+      <h3>恭喜！Phase 1 即将完成</h3>
+      <p>本课是 Phase 1 的最后一课。接下来进入 <strong>Phase 2（第11-16小时）</strong>：从零构建一个完整的 <strong>Code Review Crew</strong> 实战项目，综合运用前面所学的所有技能。</p>
+
+      <div class="followup-prompt">
+        <strong>💬 有疑问？随时问我：</strong>
+        例如："update_state 和 invoke 的关系是什么？""Checkpoint 存在哪里？能换数据库吗？""一个工作流可以同时有多个 interrupt 吗？"
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const answers = {
+      q1: 'c',
+      q2: 'b'
+    };
+
+    const explanations = {
+      q1: 'interrupt() 是 LangGraph 设计的预期行为：它暂停工作流执行，保存当前状态的 Checkpoint，等待外部（人类或系统）输入后再恢复。不是异常，不需要 try-except。',
+      q2: '正确的恢复流程是：先用 update_state() 提交人类的决策结果，然后用保存下来的 config 再次调用 invoke(None)，工作流会从中断点继续执行。'
+    };
+
+    document.querySelectorAll('.quiz-options input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const quiz = this.closest('.quiz');
+        const qName = this.name;
+        const feedback = quiz.querySelector('.quiz-feedback');
+        const selected = this.value;
+        const correct = answers[qName];
+
+        if (selected === correct) {
+          feedback.className = 'quiz-feedback correct';
+          feedback.textContent = '✅ 正确！' + explanations[qName];
+        } else {
+          feedback.className = 'quiz-feedback incorrect';
+          feedback.textContent = '❌ 不对。' + explanations[qName];
+        }
+      });
+    });
+  </script>
+</body>
+</html>

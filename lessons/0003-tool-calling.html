@@ -1,0 +1,366 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 03 — Tool Calling 与 Agent 行动能力</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="lesson-nav">
+      <span>📚 多Agent协同开发入门</span>
+      <a href="0001-what-are-multi-agent-systems.html">← Lesson 01</a>
+      <a href="0002-langgraph-core-concepts.html">← Lesson 02</a>
+      <a href="#">GLOSSARY</a>
+      <a href="#">RESOURCES</a>
+    </nav>
+
+    <header class="lesson-header">
+      <div class="lesson-number">Lesson 03 · Phase 1</div>
+      <h1 class="lesson-title">Tool Calling：让 Agent 获得"动手能力"</h1>
+      <div class="lesson-meta">
+        <span>⏱ 约55分钟</span>
+        <span>📝 包含2个练习</span>
+      </div>
+    </header>
+
+    <!-- Section 1 -->
+    <h2>一、没有 Tool 的 Agent 是"坐在办公室里的人"</h2>
+
+    <p>回顾 Lesson 01：Agent = LLM + Tool + Memory + Prompt。</p>
+
+    <p>到目前为止，我们创建的 Agent 只能<strong>生成文本</strong>——它们可以写文章、做总结，但无法：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li>搜索互联网获取实时信息</li>
+      <li>执行数学计算</li>
+      <li>读写文件</li>
+      <li>调用 API 获取数据</li>
+      <li>运行代码</li>
+    </ul>
+
+    <p><strong>Tool Calling（工具调用）就是给 Agent 装上"手"</strong>，让它们不仅能思考，还能行动。</p>
+
+    <div class="callout callout-info">
+      <div class="callout-title">💡 关键认知</div>
+      Tool Calling 的本质是：LLM 输出一段结构化 JSON，告诉系统"我要调用哪个函数、传什么参数"，然后系统执行这个函数，把结果再喂回给 LLM。
+    </div>
+
+    <!-- Section 2 -->
+    <h2>二、Tool 的工作原理</h2>
+
+    <p>整个过程分四步，每次调用都是这个循环：</p>
+
+    <pre><code>Step 1: 用户提问
+    ↓
+Step 2: LLM 判断需要工具 → 输出 {"name": "search", "arguments": {"query": "..."}}
+    ↓
+Step 3: 系统执行 search("...") → 得到真实结果
+    ↓
+Step 4: 把结果送回 LLM → LLM 生成最终回答</code></pre>
+
+    <p>这就是为什么 Tool 能让 Agent 避免幻觉——<strong>它不再靠记忆编造答案，而是去"查资料"</strong>。</p>
+
+    <!-- Section 3 -->
+    <h2>三、自定义 Tool：从 0 到 1</h2>
+
+    <p>用 LangChain 定义一个 Tool 非常简单：</p>
+
+    <pre><code>from langchain_core.tools import tool
+from typing import Annotated
+
+# 方式一：用装饰器（最简单）
+@tool
+def get_weather(city: str) -> str:
+    """获取指定城市的当前天气。输入必须是城市名（中文或英文）。"""
+    # 这里可以调用真实 API，演示用模拟数据
+    weather_data = {
+        "beijing": "晴朗，18°C，东北风3级",
+        "shanghai": "多云，22°C，东风2级",
+        "shenzhen": "小雨，26°C，南风4级",
+    }
+    return weather_data.get(city.lower(), "暂不支持该城市")
+
+# 方式二：用类（更灵活）
+from langchain_core.tools import StructuredTool
+
+def add_numbers(a: int, b: int) -> int:
+    """将两个数字相加，返回结果。"""
+    return a + b
+
+calculator_tool = StructuredTool.from_function(
+    func=add_numbers,
+    name="add_numbers",
+    description="将两个整数相加"
+)</code></pre>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 Tool 描述非常重要</div>
+      <code>description</code> 字段决定了 LLM 什么时候会调用这个 Tool。描述写得越清晰，调用的准确率越高。
+    </div>
+
+    <!-- Section 4 -->
+    <h2>四、在 LangGraph 中使用 Tool</h2>
+
+    <p>现在把 Tool 集成到之前的 Multi-Agent 系统中。我们来做一个<strong>带搜索功能的 Researcher</strong>：</p>
+
+    <pre><code>from langchain_core.tools import tool
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict, Annotated
+import operator
+
+# ===== 定义 Tools =====
+
+@tool
+def search_web(query: str) -> str:
+    """搜索互联网获取最新信息。返回相关搜索结果摘要。"""
+    # 实际项目中这里调用 SerpAPI / Tavily 等搜索 API
+    # 演示用模拟数据
+    mock_results = {
+        "langgraph": "LangGraph 是 LangChain 官方多Agent编排框架，基于图结构，支持条件路由和循环。GitHub 上有 8000+ stars。",
+        "multi agent": "多Agent系统由多个专用Agent协作完成复杂任务，常见架构包括Pipeline、Orchestrator、Router和P2P。",
+        "python": "Python 是2024年最流行的编程语言之一，以简洁语法和丰富生态著称。",
+    }
+    for key, value in mock_results.items():
+        if key in query.lower():
+            return value
+    return f"关于「{query}」的搜索结果：暂无详细数据，建议查看官方文档或技术博客。"
+
+@tool
+def format_output(text: str, style: str) -> str:
+    """将文本格式化为指定样式。style 可选：markdown、plain、bullet_list。"""
+    if style == "markdown":
+        return f"## {text[:50]}\n\n{text}"
+    elif style == "bullet_list":
+        lines = text.split(". ")
+        return "\n".join(f"- {line.strip()}" for line in lines if line.strip())
+    return text
+
+# ===== 定义状态 =====
+class GraphState(TypedDict):
+    topic: str
+    search_result: str
+    draft: str
+    formatted: str
+
+# ===== 节点定义 =====
+
+def researcher_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    tools = [search_web]
+    llm_with_tools = llm.bind_tools(tools)
+    
+    response = llm_with_tools.invoke([
+        ("system", "你是研究员。请用 search_web 工具搜索给定主题的最新信息。"),
+        ("user", f"请搜索并总结：{state['topic']}")
+    ])
+    
+    # 如果 LLM 调用了工具，执行工具并继续
+    if response.tool_calls:
+        tool_results = []
+        for tool_call in response.tool_calls:
+            selected_tool = { "search_web": search_web, "format_output": format_output }[tool_call["name"]]
+            result = selected_tool.invoke(tool_call["args"])
+            tool_results.append({"role": "tool", "tool_call_id": tool_call["id"], "content": result})
+        
+        final_response = llm_with_tools.invoke([
+            ("system", "你是研究员。"),
+            ("user", f"搜索主题：{state['topic']}"),
+            response,
+            *tool_results
+        ])
+        return {"search_result": final_response.content.strip()}
+    
+    return {"search_result": response.content.strip()}
+
+def writer_node(state: GraphState) -> dict:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    tools = [format_output]
+    llm_with_tools = llm.bind_tools(tools)
+    
+    prompt = f"""根据以下搜索结果，撰写一篇技术简介（200字左右）：
+
+{state['search_result']}"""
+    
+    response = llm_with_tools.invoke([
+        ("system", "你是技术写作者。用 format_output 工具格式化最终文章为 markdown 样式。"),
+        ("user", prompt)
+    ])
+    
+    if response.tool_calls:
+        result = format_output.invoke(response.tool_calls[0]["args"])
+        return {"formatted": result}
+    
+    return {"formatted": response.content.strip()}
+
+# ===== 构建图 =====
+workflow = StateGraph(GraphState)
+workflow.add_node("researcher", researcher_node)
+workflow.add_node("writer", writer_node)
+workflow.add_edge(START, "researcher")
+workflow.add_edge("researcher", "writer")
+workflow.add_edge("writer", END)
+
+app = workflow.compile()
+
+if __name__ == "__main__":
+    result = app.invoke({"topic": "多Agent协同开发"})
+    print("=== 最终格式化输出 ===")
+    print(result["formatted"])</code></pre>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">⚠️ 注意：Tool 执行的两种方式</div>
+      <strong>方式一（手动）</strong>：<code>llm.bind_tools(tools)</code> 后检查 <code>response.tool_calls</code>，自己调用工具并拼回对话。上面代码用的就是这个方式，便于理解原理。<br><br>
+      <strong>方式二（自动）</strong>：使用 LangGraph 内置的 <code>ToolNode</code>，让框架自动处理工具调用循环。实际项目中推荐这种方式。
+    </div>
+
+    <!-- Section 5: ToolNode -->
+    <h2>五、用 ToolNode 简化 Tool 调用（推荐方式）</h2>
+
+    <p>LangGraph 提供了 <code>ToolNode</code>，自动处理 LLM 的工具调用请求，你只需要定义 Tool 和节点逻辑：</p>
+
+    <pre><code>from langgraph.prebuilt import create_react_agent, ToolNode
+
+# 定义所有工具
+tools = [search_web, format_output]
+
+# ToolNode 自动处理工具调用
+tool_node = ToolNode(tools)
+
+def agent_node(state, config):
+    llm = ChatOpenAI(model="gpt-4o-mini", tools=tools)
+    messages = [("system", "你是研究员。"), ("user", state["question"])]
+    response = llm.invoke(messages)
+    return {"messages": [response]}
+
+# 构建图：agent → 判断是否有 tool_call → 是则走 tool_node → 回到 agent
+from langgraph.graph import StateGraph, START, END
+from langgraph.types import interrupt
+
+class AgentState(TypedDict):
+    messages: Annotated[list, operator.add]
+
+workflow = StateGraph(AgentState)
+workflow.add_node("agent", agent_node)
+workflow.add_node("tools", tool_node)
+
+workflow.add_edge(START, "agent")
+
+# 条件边：agent 决定下一步
+workflow.add_conditional_edges(
+    "agent",
+    lambda x: "tools" if x["messages"][-1].tool_calls else "end",
+    {"tools": "tools", "end": END}
+)
+
+workflow.add_edge("tools", "agent")  # 工具执行完回到 agent
+
+app = workflow.compile()</code></pre>
+
+    <p>这是 LangGraph 的<strong>标准 ReAct 模式</strong>：<strong>Reason + Act</strong>，即"思考 → 行动 → 观察 → 再思考"的循环。</p>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/how-tos/tool-calling/">LangGraph Tool Calling 教程</a></p>
+
+    <!-- Section 6: 常见错误 -->
+    <h2>六、Tool Calling 新手常见错误</h2>
+
+    <ol style="margin:12px 0 16px 24px; line-height:2;">
+      <li><strong>Tool 的 description 写得太模糊</strong> —— LLM 不知道该不该调用，导致漏调或多调。描述要具体说明输入输出。</li>
+      <li><strong>忘记把 Tool 传给 LLM</strong> —— 定义了 Tool 但 <code>bind_tools</code> 或 <code>tools=</code> 参数没传，LLM 完全不知道有这个工具。</li>
+      <li><strong>工具返回非字符串</strong> —— Tool 必须返回字符串，如果返回字典/对象需要先 <code>json.dumps()</code>。</li>
+      <li><strong>工具函数名和 description 不一致</strong> —— LLM 根据 name 匹配工具，名字要准确反映功能。</li>
+      <li><strong>忽略超时和异常</strong> —— 网络请求可能失败，工具函数应该 try-except 并返回友好错误信息。</li>
+    </ol>
+
+    <!-- Section 7: Quiz -->
+    <h2>七、自检练习</h2>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-question">Q1: Tool 的 description 字段的作用是什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q1" value="a"> A. 定义工具的返回类型</label></li>
+        <li><label><input type="radio" name="q1" value="b"> B. 告诉 LLM 什么时候应该调用这个工具</label></li>
+        <li><label><input type="radio" name="q1" value="c"> C. 设置工具的调用频率上限</label></li>
+        <li><label><input type="radio" name="q1" value="d"> D. 定义工具的输出格式</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-question">Q2: ReAct 模式中，agent 节点执行完 tool 后应该做什么？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q2" value="a"> A. 直接结束</label></li>
+        <li><label><input type="radio" name="q2" value="b"> B. 回到 agent 节点，让 LLM 基于工具结果继续推理</label></li>
+        <li><label><input type="radio" name="q2" value="c"> C. 回到 START，重新开始</label></li>
+        <li><label><input type="radio" name="q2" value="d"> D. 随机选择一个节点</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <!-- Section 8: 实践任务 -->
+    <h2>八、实践任务</h2>
+
+    <p>基于上面的代码，完成以下挑战：</p>
+
+    <ul class="checklist">
+      <li><strong>任务 A</strong>：新增一个 <code>save_file</code> Tool，能将文本内容写入本地 <code>.md</code> 文件</li>
+      <li><strong>任务 B</strong>：在 Researcher 节点中，先用 <code>search_web</code> 获取信息，再把结果通过 <code>save_file</code> 保存到磁盘</li>
+      <li><strong>任务 C</strong>：将代码中的模拟搜索替换为真实的 <a href="https://serpapi.com">SerpAPI</a>（免费注册可获得 100 次/月免费额度）</li>
+    </ul>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 提示：save_file Tool</div>
+      <pre><code>@tool
+def save_file(content: str, filename: str) -> str:
+    """将内容保存到本地 Markdown 文件。"""
+    with open(filename, "w", encoding="utf-8") as f:
+        f.write(content)
+    return f"✅ 已保存至 {filename}"</code></pre>
+    </div>
+
+    <!-- Section 9: 下一步 -->
+    <div class="lesson-footer">
+      <h3>下一步</h3>
+      <p>掌握 Tool Calling 后，进入 <strong>Lesson 04：条件路由与循环控制</strong>，学习如何让 Agent 工作流具有智能分支和迭代能力，这是构建复杂多Agent系统的核心技能。</p>
+
+      <div class="followup-prompt">
+        <strong>💬 有疑问？随时问我：</strong>
+        例如："ToolNode 和手动 bind_tools 有什么区别？""一个 LLM 调用可以触发多个 Tool 吗？""如何限制 Tool 调用的最大次数？"
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const answers = {
+      q1: 'b',
+      q2: 'b'
+    };
+
+    const explanations = {
+      q1: 'description 是 LLM 决定是否调用这个 Tool 的关键依据。描述越清晰具体（包含输入格式、适用场景、返回值说明），LLM 调用的准确率越高。',
+      q2: 'ReAct 循环的核心是"思考→行动→观察→再思考"。Tool 执行完成后，结果返回给 LLM，agent 节点继续推理，直到得出最终答案才结束。'
+    };
+
+    document.querySelectorAll('.quiz-options input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const quiz = this.closest('.quiz');
+        const qName = this.name;
+        const feedback = quiz.querySelector('.quiz-feedback');
+        const selected = this.value;
+        const correct = answers[qName];
+
+        if (selected === correct) {
+          feedback.className = 'quiz-feedback correct';
+          feedback.textContent = '✅ 正确！' + explanations[qName];
+        } else {
+          feedback.className = 'quiz-feedback incorrect';
+          feedback.textContent = '❌ 不对。' + explanations[qName];
+        }
+      });
+    });
+  </script>
+</body>
+</html>

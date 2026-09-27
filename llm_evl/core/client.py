@@ -15,7 +15,7 @@ from collections.abc import Awaitable, Callable
 
 import httpx
 
-from .models import RequestResult, Target
+from .models import ErrorType, RequestResult, Target
 from .tokenizer import count_tokens
 
 logger = logging.getLogger(__name__)
@@ -23,6 +23,26 @@ logger = logging.getLogger(__name__)
 # A token is roughly 4 chars; we record an ITL sample per content delta chunk.
 # Some providers send one token per chunk; others batch. We treat each chunk
 # boundary as an ITL observation (the most honest unit the wire gives us).
+
+# Quality component weights. When a prompt defines reference_points, points
+# become the primary signal (0.5) and the remaining 0.5 is split between the
+# legacy keyword/length checks. With no points, the original 60/40 split is
+# preserved exactly so existing scores stay comparable.
+W_POINTS = 0.5
+W_KEYWORD = 0.6
+W_LENGTH = 0.4
+
+
+def _compute_cost(target: Target, input_tokens: int, output_tokens: int) -> float | None:
+    """Cost in CNY. None unless the target has a usable price pair."""
+    if target.price_in is None and target.price_out is None:
+        return None
+    cost = 0.0
+    if target.price_in:
+        cost += input_tokens / 1_000_000 * target.price_in
+    if target.price_out:
+        cost += output_tokens / 1_000_000 * target.price_out
+    return cost
 
 
 async def stream_request(
@@ -37,6 +57,7 @@ async def stream_request(
     concurrency: int,
     expected_keywords: list[str] | None = None,
     min_output_tokens: int | None = None,
+    reference_points: list[str] | None = None,
 ) -> RequestResult:
     """Send one streaming chat completion and return a timed RequestResult.
 
@@ -82,6 +103,7 @@ async def stream_request(
                 body = await resp.aread()
                 body_text = body[:300].decode("utf-8", "replace").strip()
                 result.error = f"HTTP {resp.status_code} from {target.name} ({url}): {body_text}"
+                result.error_type = ErrorType.from_status(resp.status_code).value
                 result.ok = False
                 result.e2e = time.perf_counter() - t0
                 return result
@@ -96,6 +118,9 @@ async def stream_request(
                 try:
                     chunk = json.loads(line)
                 except json.JSONDecodeError:
+                    # Previously swallowed silently, so a client-side stream
+                    # bug looked identical to a healthy short response.
+                    result.malformed_chunks += 1
                     continue
 
                 # Capture usage from the final chunk (OpenAI sends it on the
@@ -107,6 +132,9 @@ async def stream_request(
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
+                fr = choices[0].get("finish_reason")
+                if fr:
+                    result.finish_reason = fr
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
                 if content:
@@ -128,11 +156,13 @@ async def stream_request(
     except httpx.TimeoutException:
         result.timed_out = True
         result.error = f"{target.name} timeout after {timeout}s ({url})"
+        result.error_type = ErrorType.TIMEOUT.value
         result.ok = False
         result.e2e = time.perf_counter() - t0
         return result
     except httpx.HTTPError as exc:
         result.error = f"{target.name} transport error ({url}): {exc}"
+        result.error_type = ErrorType.TRANSPORT.value
         result.ok = False
         result.e2e = time.perf_counter() - t0
         return result
@@ -149,8 +179,18 @@ async def stream_request(
     else:
         # No content token received: treat as error unless usage says otherwise.
         result.e2e = t_end - t0
+        if result.finish_reason == "content_filter":
+            result.error = result.error or f"{target.name} response blocked by content filter"
+            result.error_type = ErrorType.CONTENT_FILTERED.value
+            result.ok = False
+            return result
         if not text and not usage:
             result.error = result.error or "no content received"
+            result.error_type = (
+                ErrorType.PARSE.value
+                if result.malformed_chunks
+                else ErrorType.NO_CONTENT.value
+            )
             result.ok = False
             return result
 
@@ -158,15 +198,24 @@ async def stream_request(
     result.output_tokens = n_tokens
     result.token_source = source
 
+    # Input tokens were previously never captured, so cost was uncomputable.
+    if usage:
+        in_tok = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+    else:
+        in_tok = count_tokens(prompt_text, None)[0]
+    result.input_tokens = int(in_tok)
+    result.cost = _compute_cost(target, result.input_tokens, n_tokens)
+
     if result.generation_duration and result.generation_duration > 0 and n_tokens:
         result.tokens_per_second = n_tokens / result.generation_duration
     elif result.generation_duration == 0 and n_tokens:
         # Degenerate: a single chunk carried all content.
         result.tokens_per_second = None
 
-    # Quality scoring (opt-in via expected_keywords / min_output_tokens).
+    # Quality scoring (opt-in via reference_points / keywords / min tokens).
     result.output_text = text[:4000]  # cap storage
-    _score_quality(result, text, n_tokens, expected_keywords, min_output_tokens)
+    _score_quality(result, text, n_tokens, expected_keywords, min_output_tokens,
+                   reference_points)
 
     result.ok = True
     return result
@@ -174,11 +223,23 @@ async def stream_request(
 
 def _score_quality(result: RequestResult, text: str, n_tokens: int,
                    expected_keywords: list[str] | None,
-                   min_output_tokens: int | None) -> None:
-    """Compute quality_score in [0,1]. None if no criteria configured."""
+                   min_output_tokens: int | None,
+                   reference_points: list[str] | None = None) -> None:
+    """Compute quality_score in [0,1]. None if no criteria configured.
+
+    Two modes, so old scores stay comparable:
+
+    - No reference_points: the original behaviour exactly (keywords 60%,
+      length 40%).
+    - With reference_points: points carry W_POINTS and the remainder is
+      split across the legacy checks, then renormalised over the components
+      that are actually present.
+    """
     has_kw = bool(expected_keywords)
     has_len = min_output_tokens is not None and min_output_tokens > 0
-    if not has_kw and not has_len:
+    points = [p for p in (reference_points or []) if p and p.strip()]
+    has_pts = bool(points)
+    if not has_kw and not has_len and not has_pts:
         return  # quality not measured for this prompt
 
     keyword_ratio = 1.0
@@ -192,13 +253,37 @@ def _score_quality(result: RequestResult, text: str, n_tokens: int,
         length_ratio = min(1.0, n_tokens / min_output_tokens)
         result.quality_length_ok = n_tokens >= min_output_tokens
 
-    # Weight: keywords 60%, length 40% (if both); else the single available one.
+    point_ratio = 1.0
+    if has_pts:
+        hits = sum(1 for p in points if p in text)
+        result.quality_point_hits = hits
+        result.quality_point_total = len(points)
+        point_ratio = hits / len(points)
+        result.quality_point_recall = point_ratio
+
+    if not has_pts:
+        # Legacy path — unchanged weights (existing tests depend on this).
+        if has_kw and has_len:
+            result.quality_score = W_KEYWORD * keyword_ratio + W_LENGTH * length_ratio
+        elif has_kw:
+            result.quality_score = keyword_ratio
+        else:
+            result.quality_score = length_ratio
+        return
+
+    # Points present: distribute the leftover 0.5 across the legacy checks.
+    weights: list[tuple[float, float]] = [(W_POINTS, point_ratio)]
+    rest = 1.0 - W_POINTS
     if has_kw and has_len:
-        result.quality_score = 0.6 * keyword_ratio + 0.4 * length_ratio
+        weights.append((rest * W_KEYWORD / (W_KEYWORD + W_LENGTH), keyword_ratio))
+        weights.append((rest * W_LENGTH / (W_KEYWORD + W_LENGTH), length_ratio))
     elif has_kw:
-        result.quality_score = keyword_ratio
-    else:
-        result.quality_score = length_ratio
+        weights.append((rest, keyword_ratio))
+    elif has_len:
+        weights.append((rest, length_ratio))
+
+    total_w = sum(w for w, _ in weights)
+    result.quality_score = sum(w * v for w, v in weights) / total_w
 
 
 async def stream_chat(
@@ -245,6 +330,7 @@ async def stream_chat(
                 body = await resp.aread()
                 body_text = body[:300].decode("utf-8", "replace").strip()
                 result.error = f"HTTP {resp.status_code} from {target.name}: {body_text}"
+                result.error_type = ErrorType.from_status(resp.status_code).value
                 result.ok = False
                 result.e2e = time.perf_counter() - t0
                 return result
@@ -259,6 +345,7 @@ async def stream_chat(
                 try:
                     chunk = json.loads(line)
                 except json.JSONDecodeError:
+                    result.malformed_chunks += 1
                     continue
 
                 u = chunk.get("usage")
@@ -268,6 +355,9 @@ async def stream_chat(
                 choices = chunk.get("choices") or []
                 if not choices:
                     continue
+                fr = choices[0].get("finish_reason")
+                if fr:
+                    result.finish_reason = fr
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
                 if content:
@@ -285,11 +375,13 @@ async def stream_chat(
     except httpx.TimeoutException:
         result.timed_out = True
         result.error = f"{target.name} timeout after {timeout}s"
+        result.error_type = ErrorType.TIMEOUT.value
         result.ok = False
         result.e2e = time.perf_counter() - t0
         return result
     except httpx.HTTPError as exc:
         result.error = f"{target.name} transport error: {exc}"
+        result.error_type = ErrorType.TRANSPORT.value
         result.ok = False
         result.e2e = time.perf_counter() - t0
         return result
@@ -303,14 +395,30 @@ async def stream_chat(
         result.generation_duration = (t_end - first_token_time) or 0.0
     else:
         result.e2e = t_end - t0
+        if result.finish_reason == "content_filter":
+            result.error = result.error or f"{target.name} response blocked by content filter"
+            result.error_type = ErrorType.CONTENT_FILTERED.value
+            result.ok = False
+            return result
         if not text and not usage:
             result.error = result.error or "no content received"
+            result.error_type = (
+                ErrorType.PARSE.value
+                if result.malformed_chunks
+                else ErrorType.NO_CONTENT.value
+            )
             result.ok = False
             return result
 
     n_tokens, source = count_tokens(text, usage)
     result.output_tokens = n_tokens
     result.token_source = source
+    if usage:
+        in_tok = usage.get("prompt_tokens") or usage.get("input_tokens") or 0
+    else:
+        in_tok = 0
+    result.input_tokens = int(in_tok)
+    result.cost = _compute_cost(target, result.input_tokens, n_tokens)
 
     if result.generation_duration and result.generation_duration > 0 and n_tokens:
         result.tokens_per_second = n_tokens / result.generation_duration

@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lesson 01 — 多Agent系统是什么</title>
+  <link rel="stylesheet" href="../assets/styles.css">
+</head>
+<body>
+  <div class="container">
+
+    <nav class="lesson-nav">
+      <span>📚 多Agent协同开发入门</span>
+      <a href="#">GLOSSARY</a>
+      <a href="#">RESOURCES</a>
+    </nav>
+
+    <header class="lesson-header">
+      <div class="lesson-number">Lesson 01 · Phase 1</div>
+      <h1 class="lesson-title">多Agent系统是什么：从直觉到概念</h1>
+      <div class="lesson-meta">
+        <span>⏱ 约45分钟</span>
+        <span>📝 包含2个练习</span>
+        <span>✅ 第一课</span>
+      </div>
+    </header>
+
+    <!-- Section 1: 直觉建立 -->
+    <h2>一、为什么需要多个Agent？</h2>
+
+    <p>先从一个日常场景开始理解。想象你在写一份项目方案，需要：<p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li>搜索最新的行业动态</li>
+      <li>撰写技术方案正文</li>
+      <li>检查语法和格式问题</li>
+      <li>生成PPT摘要</li>
+    </ul>
+
+    <p>一个人做，每个环节切换成本很高。更好的方式是：<strong>让每个环节由一个专门的人负责</strong>，他们之间有清晰的协作关系。</p>
+
+    <p>多Agent系统就是这个思路的AI版本——每个Agent是一个" specialists "，专注做一件事，协作完成复杂任务。</p>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 核心直觉</div>
+      一个Agent ≈ 一个专业的"虚拟同事"。多Agent = 一个虚拟团队协作。
+    </div>
+
+    <!-- Section 2: 什么是Agent -->
+    <h2>二、Agent 是什么？</h2>
+
+    <p>Agent不是一个魔法黑盒，它由四个基本组件构成：</p>
+
+    <table>
+      <thead>
+        <tr><th>组件</th><th>作用</th><th>类比</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>LLM</strong>（大语言模型）</td>
+          <td>理解和生成文本，做决策</td>
+          <td>大脑</td>
+        </tr>
+        <tr>
+          <td><strong>Tool</strong>（工具）</td>
+          <td>执行具体操作：搜索、计算、写文件等</td>
+          <td>手和工具</td>
+        </tr>
+        <tr>
+          <td><strong>Memory</strong>（记忆）</td>
+          <td>记住之前的对话和结果</td>
+          <td>笔记本</td>
+        </tr>
+        <tr>
+          <td><strong>Prompt</strong>（提示词）</td>
+          <td>告诉Agent它是谁、该做什么</td>
+          <td>岗位说明书</td>
+        </tr>
+      </tbody>
+    </table>
+
+    <p class="citation">来源：<a href="https://python.langchain.com/docs/concepts/agents/">LangChain Agents Guide</a></p>
+
+    <p>单个Agent的能力已经很强了，但遇到复杂任务时，让一个Agent负责所有环节容易产生<strong>幻觉</strong>（hallucination）——即它可能会"自信地编造"错误信息。</p>
+
+    <p>多Agent系统的核心优势是：<strong>让每个Agent专注自己的领域，互相验证</strong>，从而减少错误。</p>
+
+    <!-- Section 3: 四种架构模式 -->
+    <h2>三、四种核心架构模式</h2>
+
+    <p>多Agent协作有四种基本模式，掌握它们就掌握了整个领域的基础。</p>
+
+    <h3>模式1：Pipeline（流水线）</h3>
+    <p>Agent按固定顺序依次执行，前一个的输出是后一个的输入。就像工厂装配线。</p>
+    <pre><code>Agent A（搜索） → Agent B（分析） → Agent C（写报告）</code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">适用场景</div>
+      任务步骤固定、依赖关系明确，如：调研 → 写作 → 排版。
+    </div>
+
+    <h3>模式2：Orchestrator / Worker（主从）</h3>
+    <p>一个中心Agent（Orchestrator）负责任务拆解和调度，多个Worker Agent各自执行子任务，最后汇总结果。</p>
+    <pre><code>
+用户请求
+    ↓
+Orchestrator（拆解任务、分发）
+    ├──→ Worker A（做数据分析）
+    ├──→ Worker B（做代码审查）
+    └──→ Worker C（写文档）
+    ↓
+Orchestrator（汇总结果）→ 最终输出
+    </code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">适用场景</div>
+      任务可拆解、各子任务相对独立，如：代码评审团队。
+    </div>
+
+    <h3>模式3：Router（路由）</h3>
+    <p>根据输入内容动态选择路径，决定哪个Agent来处理当前请求。</p>
+    <pre><code>用户输入
+    ↓
+Router Agent（判断意图）
+    ├──→ 技术问题 → Agent A（技术专家）
+    ├──→ 商务问题 → Agent B（商务专员）
+    └──→ 投诉问题 → Agent C（客服专员）
+    </code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">适用场景</div>
+      输入类型多样，需要分流处理，如：智能客服系统。
+    </div>
+
+    <h3>模式4：Peer-to-Peer（对等协作）</h3>
+    <p>Agent之间直接对话、协商，没有中心调度者。每个Agent都可以发起消息，自主决定回应什么。</p>
+    <pre><code>Agent A ↔ Agent B ↔ Agent C
+   ↑         ↑         ↑
+  自由对话、协商、互相纠正
+    </code></pre>
+
+    <div class="callout callout-info">
+      <div class="callout-title">适用场景</div>
+      需要高度灵活协商的场景，如：辩论式问题解决、多视角分析。
+    </div>
+
+    <p class="citation">参考：<a href="https://langchain-ai.github.io/langgraph/">LangGraph 官方文档</a></p>
+
+    <!-- Section 4: 动手实践 -->
+    <h2>四、动手：第一个 Hello World</h2>
+
+    <p>现在我们来写一个最简单的多Agent脚本。这个脚本有两个Agent：</p>
+    <ul style="margin:12px 0 16px 24px;">
+      <li><strong>Researcher</strong>：搜索并总结一个话题</li>
+      <li><strong>Writer</strong>：把Researcher的结果写成一段简介</li>
+    </ul>
+
+    <p>使用 <strong>LangGraph</strong> 框架（Pipeline 架构）。</p>
+
+    <h3>步骤1：安装依赖</h3>
+    <pre><code>pip install langgraph langchain-openai python-dotenv</code></pre>
+
+    <h3>步骤2：创建 .env 文件</h3>
+    <pre><code>OPENAI_API_KEY=sk-your-key-here</code></pre>
+
+    <div class="callout callout-warning">
+      <div class="callout-title">⚠️ 安全提醒</div>
+      .env 文件永远不要提交到 Git 仓库。在项目根目录添加 <code>.env</code> 到 <code>.gitignore</code>。
+    </div>
+
+    <h3>步骤3：编写 agent_helloworld.py</h3>
+    <pre><code>import os
+from dotenv import load_dotenv
+from langchain_openai import ChatOpenAI
+from langgraph.graph import StateGraph, START, END
+from typing import TypedDict
+
+load_dotenv()
+
+# --- 定义状态 ---
+class GraphState(TypedDict):
+    topic: str
+    research: str
+    final_summary: str
+
+# --- Agent 1: Researcher ---
+def researcher_node(state: GraphState) -> GraphState:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""你是研究助理。请用2-3句话总结主题「{state['topic']}」的核心要点。
+只输出总结，不要其他内容。"""
+    response = llm.invoke(prompt)
+    return {"research": response.content.strip()}
+
+# --- Agent 2: Writer ---
+def writer_node(state: GraphState) -> GraphState:
+    llm = ChatOpenAI(model="gpt-4o-mini")
+    prompt = f"""你是科技写作者。请把以下研究内容改写成一段通俗易懂的简介（100字以内）：
+
+{state['research']}
+
+输出格式：
+【简介】
+（你的改写内容）"""
+    response = llm.invoke(prompt)
+    return {"final_summary": response.content.strip()}
+
+# --- 构建图 ---
+workflow = StateGraph(GraphState)
+workflow.add_node("researcher", researcher_node)
+workflow.add_node("writer", writer_node)
+workflow.add_edge(START, "researcher")
+workflow.add_edge("researcher", "writer")
+workflow.add_edge("writer", END)
+
+app = workflow.compile()
+
+# --- 运行 ---
+if __name__ == "__main__":
+    result = app.invoke({"topic": "多Agent协同开发"})
+    print(result["final_summary"])
+</code></pre>
+
+    <h3>步骤4：运行</h3>
+    <pre><code>python agent_helloworld.py</code></pre>
+
+    <div class="callout callout-tip">
+      <div class="callout-title">💡 预期输出</div>
+      你会看到一段关于"多Agent协同开发"的简短介绍，由第二个Agent基于第一个Agent的研究结果生成。这就是最简单的Pipeline架构多Agent系统。
+    </div>
+
+    <p class="citation">教程参考：<a href="https://langchain-ai.github.io/langgraph/tutorials/">LangGraph Tutorials</a></p>
+
+    <!-- Section 5: 常见误区 -->
+    <h2>五、新手最容易犯的错误</h2>
+
+    <ol style="margin:12px 0 16px 24px; line-height:2;">
+      <li><strong>贪多嚼不烂</strong> —— 同时学 LangGraph + CrewAI + AutoGen，结果三个都没跑通。先选一个，跑通再说。</li>
+      <li><strong>忽视Prompt设计</strong> —— Agent行为不稳定，80%的原因是prompt没写好，不是框架问题。</li>
+      <li><strong>不做错误处理</strong> —— LLM会幻觉、会超时、会失败，代码必须有 retry 和 fallback。</li>
+      <li><strong>过早优化</strong> —— 先跑通最简单的版本（如上面的Hello World），再考虑扩展性。</li>
+      <li><strong>不记录学习笔记</strong> —— 不记录就会忘记踩过的坑，下次重蹈覆辙。</li>
+    </ol>
+
+    <!-- Section 6: Quiz -->
+    <h2>六、自检练习</h2>
+
+    <div class="quiz" id="quiz1">
+      <div class="quiz-question">Q1: Pipeline 架构最适合哪种场景？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q1" value="a"> A. 需要根据输入类型分流处理</label></li>
+        <li><label><input type="radio" name="q1" value="b"> B. 任务步骤固定，每个环节依赖前一个的输出</label></li>
+        <li><label><input type="radio" name="q1" value="c"> C. Agent之间需要自由协商和辩论</label></li>
+        <li><label><input type="radio" name="q1" value="d"> D. 任务不可预测，需要动态路由</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q1-feedback"></div>
+    </div>
+
+    <div class="quiz" id="quiz2">
+      <div class="quiz-question">Q2: 一个Agent的核心组成部分不包括以下哪项？</div>
+      <ul class="quiz-options">
+        <li><label><input type="radio" name="q2" value="a"> A. LLM（大语言模型）</label></li>
+        <li><label><input type="radio" name="q2" value="b"> B. Tool（工具）</label></li>
+        <li><label><input type="radio" name="q2" value="c"> C. Database（关系型数据库）</label></li>
+        <li><label><input type="radio" name="q2" value="d"> D. Memory（记忆）</label></li>
+      </ul>
+      <div class="quiz-feedback" id="q2-feedback"></div>
+    </div>
+
+    <!-- Section 7: 下一步 -->
+    <div class="lesson-footer">
+      <h3>下一步</h3>
+      <p>完成第一课的内容后，继续学习 <strong>Lesson 02：LangGraph 核心概念与图编排</strong>，你会深入理解如何构建更复杂的多Agent工作流。</p>
+      
+      <div class="followup-prompt">
+        <strong>💬 有疑问？随时问我：</strong>
+        例如："为什么LangGraph用图而不是顺序执行？""Tool Calling 具体是怎么工作的？""幻觉问题怎么解决？"
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const answers = {
+      q1: 'b',
+      q2: 'c'
+    };
+
+    const explanations = {
+      q1: 'Pipeline（流水线）的核心特征是步骤固定、顺序执行，每个Agent的输出是下一个Agent的输入。适合任务链路清晰的工作流。',
+      q2: 'Agent的四个核心组件是 LLM、Tool、Memory 和 Prompt。Database 不是Agent的内置组件，虽然Agent可以调用数据库作为Tool。'
+    };
+
+    document.querySelectorAll('.quiz-options input[type="radio"]').forEach(radio => {
+      radio.addEventListener('change', function() {
+        const quiz = this.closest('.quiz');
+        const qName = this.name;
+        const feedback = quiz.querySelector('.quiz-feedback');
+        const selected = this.value;
+        const correct = answers[qName];
+
+        if (selected === correct) {
+          feedback.className = 'quiz-feedback correct';
+          feedback.textContent = '✅ 正确！' + explanations[qName];
+        } else {
+          feedback.className = 'quiz-feedback incorrect';
+          feedback.textContent = '❌ 不对。' + explanations[qName];
+        }
+      });
+    });
+  </script>
+</body>
+</html>

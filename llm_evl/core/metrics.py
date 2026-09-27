@@ -44,7 +44,25 @@ def aggregate_requests(requests: list[RequestResult], concurrency: int) -> CellA
         itls.extend(r.itl)
     tps = [r.tokens_per_second for r in ok if r.tokens_per_second is not None]
     total_tokens = sum(r.output_tokens for r in ok)
+    total_input = sum(r.input_tokens for r in ok)
     quality_scores = [r.quality_score for r in ok if r.quality_score is not None]
+
+    # Cost is None unless at least one successful request had a price set.
+    costs = [r.cost for r in ok if r.cost is not None]
+    total_cost: float | None = sum(costs) if costs else None
+
+    # Point recall (the trustworthy quality signal) averaged across requests
+    # that actually had reference points configured.
+    recalls = [r.quality_point_recall for r in ok if r.quality_point_recall is not None]
+    point_recall = statistics.fmean(recalls) if recalls else None
+
+    # Failure breakdown by bucket, so "3 timeouts" and "3 stream-parse bugs"
+    # stop looking like the same thing.
+    error_breakdown: dict[str, int] = {}
+    for r in errs:
+        key = r.error_type or "unknown"
+        error_breakdown[key] = error_breakdown.get(key, 0) + 1
+    malformed = sum(r.malformed_chunks for r in requests)
 
     # Keyword hit ratio across requests that measured keywords.
     kw_hits = [r.quality_keyword_hits for r in ok if r.quality_score is not None]
@@ -86,7 +104,12 @@ def aggregate_requests(requests: list[RequestResult], concurrency: int) -> CellA
         tokens_per_second_p50=quantile(tps, 0.5),
         aggregate_tokens_per_second=agg_tps,
         total_output_tokens=total_tokens,
+        total_input_tokens=total_input,
+        total_cost=total_cost,
         quality_mean=statistics.fmean(quality_scores) if quality_scores else None,
         quality_keyword_hit_ratio=kw_ratio,
+        quality_point_recall=point_recall,
+        error_breakdown=error_breakdown,
+        malformed_chunks=malformed,
         high_error=error_rate > 0.5,
     )

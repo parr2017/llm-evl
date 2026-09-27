@@ -21,6 +21,14 @@ venv/
 .vscode/
 .idea/
 *.swp
+.history/
+
+# Browser-automation scratch output (screenshots, traces, page snapshots)
+.playwright-mcp/
+
+# Stray artifact: produced by a mistyped `2>nul` redirect under Git Bash,
+# which creates a real file named "nul" instead of discarding output.
+nul
 
 # Runtime logs
 logs/

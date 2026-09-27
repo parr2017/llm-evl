@@ -26,6 +26,8 @@ from .metrics import aggregate_requests
 from .models import (
     CellResult,
     ProgressEvent,
+    Provider,
+    ProviderModel,
     RunConfig,
     RunResult,
     RunStatus,
@@ -36,12 +38,57 @@ from .prompts import get_prompts
 logger = logging.getLogger(__name__)
 
 
-def load_targets(config_path: str) -> list[Target]:
+def _migrate_old_targets(targets_list: list[dict]) -> list[dict]:
+    """Convert flat targets list to grouped providers format.
+
+    Groups by (base_url, api_key) to create provider entries.
+    Returns a list of provider dicts.
+    """
+    groups: dict[tuple, dict] = {}
+    for t in targets_list:
+        key = (t.get("base_url", ""), t.get("api_key", ""), t.get("api_key_env", ""))
+        if key not in groups:
+            groups[key] = {
+                "name": t.get("name", "").split("/")[0] if "/" in t.get("name", "") else t.get("name", "unknown"),
+                "base_url": t.get("base_url", ""),
+                "api_key": t.get("api_key", ""),
+                "api_key_env": t.get("api_key_env", ""),
+                "models": [],
+            }
+        groups[key]["models"].append({
+            "name": t.get("model", ""),
+            "temperature": t.get("temperature"),
+        })
+    return list(groups.values())
+
+
+def load_providers(config_path: str) -> list[Provider]:
+    """Load providers from config. Supports both new 'providers' and legacy 'targets' format."""
     raw = yaml.safe_load(Path(config_path).read_text(encoding="utf-8")) or {}
-    targets = raw.get("targets") or []
-    if not targets:
+
+    providers_raw = raw.get("providers")
+    if providers_raw:
+        return [Provider.from_dict(p) for p in providers_raw]
+
+    # Legacy format: flat targets list — auto-migrate by grouping
+    targets_list = raw.get("targets") or []
+    if not targets_list:
+        return []
+
+    migrated = _migrate_old_targets(targets_list)
+    return [Provider.from_dict(p) for p in migrated]
+
+
+def load_targets(config_path: str) -> list[Target]:
+    """Load targets as a flat list. Works with both providers and legacy format."""
+    providers = load_providers(config_path)
+    if not providers:
         raise ValueError(f"No targets found in {config_path}")
-    return [Target.from_dict(t) for t in targets]
+
+    targets = []
+    for p in providers:
+        targets.extend(p.to_targets())
+    return targets
 
 
 def filter_targets(targets: list[Target], names: list[str]) -> list[Target]:
@@ -183,6 +230,7 @@ class Evaluator:
                     concurrency=concurrency,
                     expected_keywords=prompt.expected_keywords,
                     min_output_tokens=prompt.min_output_tokens,
+                    reference_points=prompt.reference_points,
                 )
             except Exception:
                 logger.debug("warmup error (ignored)")
@@ -208,6 +256,7 @@ class Evaluator:
                     concurrency=concurrency,
                     expected_keywords=prompt.expected_keywords,
                     min_output_tokens=prompt.min_output_tokens,
+                    reference_points=prompt.reference_points,
                 )
                 results.append(rr)
             return results
@@ -246,6 +295,7 @@ class Evaluator:
                     concurrency=concurrency,
                     expected_keywords=prompt.expected_keywords,
                     min_output_tokens=prompt.min_output_tokens,
+                    reference_points=prompt.reference_points,
                 )
             except Exception:
                 logger.debug("warmup error (ignored)")
@@ -273,6 +323,7 @@ class Evaluator:
                     concurrency=concurrency,
                     expected_keywords=prompt.expected_keywords,
                     min_output_tokens=prompt.min_output_tokens,
+                    reference_points=prompt.reference_points,
                 )
                 results.append(rr)
             return results

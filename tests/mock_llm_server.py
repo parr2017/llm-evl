@@ -44,6 +44,24 @@ async def chat(req: Request):
     return StreamingResponse(gen(), media_type="text/event-stream")
 
 
+@app.get("/v1/models")
+def list_models():
+    return {
+        "object": "list",
+        "data": [
+            # vLLM-style: advertises max_model_len
+            {"id": "mock-model", "object": "model", "created": 0,
+             "owned_by": "mock", "max_model_len": 32768},
+            # alias style: context_length
+            {"id": "mock-model-long", "object": "model", "created": 0,
+             "owned_by": "mock", "context_length": 131072},
+            # plain: no context advertised
+            {"id": "mock-model-plain", "object": "model", "created": 0,
+             "owned_by": "mock"},
+        ],
+    }
+
+
 @app.get("/health")
 def health():
     return {"ok": True, "time": time.time()}

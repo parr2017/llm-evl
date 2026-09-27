@@ -19,6 +19,148 @@ class TokenSource(str, Enum):
     NONE = "none"            # no tokens (error / empty)
 
 
+class ErrorType(str, Enum):
+    """Why a request failed.
+
+    Before this existed every failure was a free-text ``error`` string, so
+    "3 timeouts" and "3 stream-parse bugs" were indistinguishable in
+    aggregate. The report now groups failures by these buckets.
+    """
+
+    NONE = ""                    # success
+    TIMEOUT = "timeout"          # httpx.TimeoutException
+    RATE_LIMIT = "rate_limit"    # HTTP 429
+    CLIENT_ERROR = "client_error"      # other HTTP 4xx
+    SERVER_ERROR = "server_error"      # HTTP 5xx
+    CONTENT_FILTERED = "content_filtered"  # provider finish_reason filter
+    TRANSPORT = "transport"      # connect/read failure (httpx.HTTPError)
+    NO_CONTENT = "no_content"    # stream finished without any content delta
+    PARSE = "parse"              # stream produced no usable chunk
+    CANCELLED = "cancelled"      # run aborted mid-flight
+
+    @classmethod
+    def from_status(cls, status: int) -> "ErrorType":
+        """Map an HTTP status code to a bucket."""
+        if status == 429:
+            return cls.RATE_LIMIT
+        if 400 <= status < 500:
+            return cls.CLIENT_ERROR
+        if status >= 500:
+            return cls.SERVER_ERROR
+        return cls.CLIENT_ERROR
+
+
+@dataclass
+class ProviderModel:
+    """A single model under a provider."""
+
+    name: str
+    temperature: float | None = None
+    context_length: int | None = None   # advertised token window (may be unknown)
+    # Price in CNY per 1M tokens. None -> cost dimension stays "not covered".
+    price_in: float | None = None
+    price_out: float | None = None
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ProviderModel":
+        return cls(
+            name=d["name"],
+            temperature=d.get("temperature"),
+            context_length=_coerce_int(d.get("context_length")),
+            price_in=d.get("price_in"),
+            price_out=d.get("price_out"),
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "name": self.name,
+            "temperature": self.temperature,
+            "context_length": self.context_length,
+            "price_in": self.price_in,
+            "price_out": self.price_out,
+        }
+
+
+def _coerce_int(v: Any) -> int | None:
+    """Coerce a value to int, tolerating None and numeric strings."""
+    if v is None or v == "":
+        return None
+    try:
+        return int(v)
+    except (TypeError, ValueError):
+        return None
+
+
+@dataclass
+class Provider:
+    """A model provider (vendor) with a base_url and multiple models."""
+
+    name: str
+    base_url: str
+    api_key: str = ""
+    api_key_env: str = ""
+    models: list[ProviderModel] = field(default_factory=list)
+
+    def resolved_api_key(self) -> str:
+        import os
+        if self.api_key:
+            return self.api_key
+        if self.api_key_env:
+            return os.environ.get(self.api_key_env, "")
+        return ""
+
+    def has_plaintext_key(self) -> bool:
+        return bool(self.api_key)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "Provider":
+        models = [ProviderModel.from_dict(m) for m in (d.get("models") or [])]
+        return cls(
+            name=d["name"],
+            base_url=d["base_url"],
+            api_key=d.get("api_key", ""),
+            api_key_env=d.get("api_key_env", ""),
+            models=models,
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        """Full serialization (includes api_key for internal use)."""
+        return {
+            "name": self.name,
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "api_key_env": self.api_key_env,
+            "models": [m.to_dict() for m in self.models],
+        }
+
+    def to_config_dict(self) -> dict[str, Any]:
+        """Serializable form for UI display (exposes api_key for local use)."""
+        return {
+            "name": self.name,
+            "base_url": self.base_url,
+            "api_key": self.api_key,
+            "has_api_key": bool(self.api_key),
+            "api_key_env": self.api_key_env,
+            "models": [m.to_dict() for m in self.models],
+        }
+
+    def to_targets(self) -> list["Target"]:
+        """Flatten to a list of Target objects for benchmark evaluation."""
+        return [
+            Target(
+                name=f"{self.name}/{m.name}",
+                base_url=self.base_url,
+                model=m.name,
+                api_key=self.api_key,
+                api_key_env=self.api_key_env,
+                temperature=m.temperature,
+                price_in=m.price_in,
+                price_out=m.price_out,
+            )
+            for m in self.models
+        ]
+
+
 class RunStatus(str, Enum):
     RUNNING = "running"
     COMPLETED = "completed"
@@ -36,6 +178,8 @@ class Target:
     api_key: str = ""
     api_key_env: str = ""
     temperature: float | None = None   # None -> use run default
+    price_in: float | None = None      # CNY per 1M input tokens
+    price_out: float | None = None     # CNY per 1M output tokens
 
     def resolved_api_key(self) -> str:
         """Resolve the API key: explicit api_key wins, else read env var."""
@@ -59,6 +203,8 @@ class Target:
             api_key=d.get("api_key", ""),
             api_key_env=d.get("api_key_env", ""),
             temperature=d.get("temperature"),
+            price_in=d.get("price_in"),
+            price_out=d.get("price_out"),
         )
 
     def to_config_dict(self) -> dict[str, Any]:
@@ -70,6 +216,8 @@ class Target:
             "has_api_key": bool(self.api_key),
             "api_key_env": self.api_key_env,
             "temperature": self.temperature,
+            "price_in": self.price_in,
+            "price_out": self.price_out,
         }
 
 
@@ -88,6 +236,10 @@ class PromptItem:
     bucket: str   # "short" | "medium" | "long"
     expected_keywords: list[str] = field(default_factory=list)
     min_output_tokens: int | None = None
+    # Reference answer broken into checkable points. When set, it becomes the
+    # primary quality signal (recall = hit / total) instead of raw keyword
+    # matching, which cannot tell "right answer" from "long answer".
+    reference_points: list[str] = field(default_factory=list)
     custom: bool = False   # user-defined via prompts.yaml (editable in UI)
 
 
@@ -124,18 +276,29 @@ class RequestResult:
     generation_duration: float | None = None   # e2e - ttft
     # token / throughput
     output_tokens: int = 0
+    input_tokens: int = 0
     token_source: str = TokenSource.NONE.value
     tokens_per_second: float | None = None    # output_tokens / generation_duration
+    # cost (CNY). None when the target has no price configured.
+    cost: float | None = None
     # inter-token latencies (seconds), one entry per token after the first
     itl: list[float] = field(default_factory=list)
     # quality (0..1, None if not measured)
     quality_score: float | None = None
     quality_keyword_hits: int = 0
     quality_length_ok: bool = False
+    quality_point_hits: int = 0
+    quality_point_total: int = 0
+    quality_point_recall: float | None = None
     # outcome
     ok: bool = False
     error: str = ""
+    error_type: str = ErrorType.NONE.value
     timed_out: bool = False
+    finish_reason: str = ""
+    # SSE lines that failed json.loads(). Previously swallowed silently, which
+    # made client-side stream bugs indistinguishable from model failures.
+    malformed_chunks: int = 0
     # metadata
     started_at: float = field(default_factory=time.time)
     output_text: str = ""   # kept for quality scoring; trimmed for storage
@@ -167,9 +330,15 @@ class CellAggregates:
     aggregate_tokens_per_second: float | None = None   # concurrency > 1
     # volume
     total_output_tokens: int = 0
+    total_input_tokens: int = 0
+    total_cost: float | None = None          # None -> no target had a price
     # quality (None if not measured for this prompt)
     quality_mean: float | None = None
     quality_keyword_hit_ratio: float | None = None
+    quality_point_recall: float | None = None
+    # failures
+    error_breakdown: dict[str, int] = field(default_factory=dict)  # error_type -> count
+    malformed_chunks: int = 0
     # warning flags
     high_error: bool = False   # error_rate > 0.5
 

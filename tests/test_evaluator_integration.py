@@ -92,3 +92,16 @@ async def test_evaluator_cooperative_abort(mock_server):
     assert evaluator.run_result.status in (
         RunStatus.ABORTED.value, RunStatus.COMPLETED.value
     )
+
+
+@pytest.mark.asyncio
+async def test_fetch_models_extracts_context_length(mock_server):
+    from llm_evl.api.run_manager import RunManager
+
+    models = await RunManager("unused.yaml").fetch_models(
+        f"http://127.0.0.1:{MOCK_PORT}/v1", api_key="test-key"
+    )
+    by_name = {m["name"]: m["context_length"] for m in models}
+    assert by_name["mock-model"] == 32768        # vLLM-style max_model_len
+    assert by_name["mock-model-long"] == 131072  # context_length alias
+    assert by_name["mock-model-plain"] is None   # not advertised

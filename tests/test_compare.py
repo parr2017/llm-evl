@@ -153,3 +153,30 @@ class TestCompareApi:
     def test_endpoint_missing_run_404(self, client):
         resp = client.get("/api/compare", params={"base": "nope", "other": "bbb"})
         assert resp.status_code == 404
+
+
+class TestGetRunApi:
+    """Regression: GET /api/runs/{id} must return the run body, not null."""
+
+    @pytest.fixture
+    def client(self, monkeypatch):
+        from fastapi.testclient import TestClient
+        from llm_evl.api import run_manager
+        from llm_evl.api.server import create_app
+
+        runs = {"aaa": make_run("aaa", [make_cell("t1", "short", 1, ttft=1.0, tps=50)])}
+        monkeypatch.setattr(run_manager.manager, "get_run", lambda rid: runs.get(rid))
+        app = create_app(config_path="targets.yaml")
+        return TestClient(app)
+
+    def test_get_run_returns_body(self, client):
+        resp = client.get("/api/runs/aaa")
+        assert resp.status_code == 200
+        data = resp.json()
+        assert data is not None
+        assert data["run_id"] == "aaa"
+        assert len(data["cells"]) == 1
+
+    def test_get_run_missing_404(self, client):
+        resp = client.get("/api/runs/nope")
+        assert resp.status_code == 404
