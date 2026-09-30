@@ -976,6 +976,15 @@ class RelayService:
         out = []
         for name, pool in self._pools.items():
             d = pool.to_dict(self.router.breaker)
+            # Present members in the order they will actually be tried.
+            # Without this the UI lists them alphabetically, so after
+            # "按实测重排优先级" the numbers change but the rows do not move —
+            # the one thing the operator is trying to read.
+            d["members"] = sorted(
+                d["members"],
+                key=lambda m: (m.get("priority", UNSET_PRIORITY),
+                               m.get("provider", ""), m.get("model", "")),
+            )
             d["strategy"] = self.config.strategy_for(name)
             d["multi"] = pool.multi
             d["n_usable"] = len(pool.usable_members())

@@ -1453,3 +1453,66 @@ class TestConfigShapeRoundTrip:
         assert doc["auth"]["admin"]["password_hash"] == "pbkdf2_sha256$x"
         assert doc["auth"]["session_secret"] == "s3cret"
         assert doc["relay"]["strategy"] == "priority"
+
+
+class TestMemberOrdering:
+    """Rows must read in the order the router will actually try them.
+
+    Otherwise "按实测重排优先级" rewrites the numbers but the list keeps its
+    alphabetical order, and the operator cannot see the sequence at all.
+    """
+
+    def _grouped(self):
+        return RelayConfig(groups={"A": {"strategy": "priority", "members": [
+            {"provider": "zeta", "model": "m", "priority": 2},
+            {"provider": "alpha", "model": "m", "priority": 0},
+            {"provider": "mid", "model": "m", "priority": 1},
+        ]}})
+
+    def test_overview_lists_members_by_priority(self):
+        svc = RelayService(self._grouped(), [])
+        pool = next(p for p in svc.pool_overview() if p["name"] == "A")
+        assert [m["provider"] for m in pool["members"]] == ["alpha", "mid", "zeta"]
+        assert [m["priority"] for m in pool["members"]] == [0, 1, 2]
+
+    def test_equal_priorities_keep_a_stable_order(self):
+        cfg = RelayConfig(groups={"A": {"members": [
+            {"provider": "b", "model": "m", "priority": 5},
+            {"provider": "a", "model": "m", "priority": 5},
+        ]}})
+        svc = RelayService(cfg, [])
+        first = [m["provider"] for m in next(p for p in svc.pool_overview() if p["name"] == "A")["members"]]
+        second = [m["provider"] for m in next(p for p in svc.pool_overview() if p["name"] == "A")["members"]]
+        assert first == second == ["a", "b"]      # tie-break on provider name
+
+    def test_auto_pool_members_also_come_back_ordered(self):
+        cfg = RelayConfig(models={"qwen": {"members": {
+            "amd": {"priority": 3}, "sensenova": {"priority": 1}}}},
+            enabled=True)
+        providers = [
+            Provider(name="amd", base_url="u1", models=[ProviderModel(name="qwen")]),
+            Provider(name="sensenova", base_url="u2", models=[ProviderModel(name="qwen")]),
+        ]
+        svc = RelayService(cfg, providers)
+        pool = next(p for p in svc.pool_overview() if p["name"] == "qwen")
+        assert [m["provider"] for m in pool["members"]] == ["sensenova", "amd"]
+
+    def test_auto_priority_persists_in_ranked_order(self, mock_upstreams, tmp_path):
+        """A human opening relay.yaml should see the router's sequence."""
+        from conftest import provider_payload
+        tpath, rpath = write_configs(
+            tmp_path,
+            {"enabled": True, "strategy": "priority", "groups": {"A": {"members": [
+                {"provider": "sick", "model": "shared-model", "priority": 0},
+                {"provider": "good", "model": "shared-model", "priority": 1},
+            ]}}},
+            [provider_payload("good", GOOD_PORT, models=("shared-model",)),
+             provider_payload("sick", SICK_PORT, models=("shared-model",))],
+        )
+        with TestClient(create_app(tpath, rpath)) as raw:
+            c = _login(raw)
+            assert c.post("/api/relay/groups/A/auto-priority").status_code == 200
+        saved = load_relay_config(rpath)
+        members = saved.groups["A"]["members"]
+        assert [m["provider"] for m in members] == ["good", "sick"]
+        assert [m["priority"] for m in members] == [0, 1]

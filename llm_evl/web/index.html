@@ -205,6 +205,15 @@ body{
 .member{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--radius-sm);
   background:var(--surface);font-size:12px;margin-bottom:4px}
 .member .pname{flex:1} .member .w{font-family:var(--mono);color:var(--text-3)}
+/* The order requests are actually tried in. Ordinal, not a priority *input*,
+   so the sequence stays readable at a glance. */
+.member .rank{
+  flex:0 0 auto;min-width:20px;height:18px;padding:0 5px;border-radius:3px;
+  display:inline-flex;align-items:center;justify-content:center;
+  font-family:var(--mono);font-size:11px;
+  background:var(--surface-3);color:var(--text-3);
+}
+.member .rank.top{background:var(--accent-dim);color:var(--accent-text);font-weight:700}
 /* Searchable multi-select list for picking group members. A plain bordered
    scroll area rather than a table: it is a picker, not data, and the rows are
    click targets rather than cells. */
@@ -1467,6 +1476,7 @@ body{
                 </div>
                 <div v-if="!g.members.length" class="hint">组内还没有成员，点「加成员」选择供应商与模型。</div>
                 <div class="member" v-for="(m, i) in g.members" :key="i">
+                  <span class="rank" :class="m.priority === 0 ? 'top' : ''">{{ m.priority }}</span>
                   <span class="health" :class="m.available === false ? 'cool' : 'ok'"></span>
                   <span class="pname">{{ m.provider }} / {{ m.model }}</span>
                   <span class="pill" v-if="m.available === false" class="red">配置有误（供应商或模型已不存在）</span>
@@ -1558,6 +1568,7 @@ body{
                   <span class="pill" :class="pool.multi ? 'blue' : 'amber'">{{ pool.multi ? '可聚合' : '单点' }}</span>
                 </div>
                 <div class="member" v-for="m in pool.members" :key="m.provider">
+                  <span class="rank">{{ m.priority }}</span>
                   <span class="health" :class="m.breaker.state === 'open' ? 'cool' : 'ok'"></span>
                   <span class="pname">{{ m.provider }}</span>
                   <span class="w">{{ m.context_length ? fmtCtx(m.context_length) : '上下文未知' }}</span>
@@ -2737,17 +2748,26 @@ const app = createApp({
         // editable shape from the pools (which is what the server validated).
         relayGroups.value = Object.entries(d.config?.groups || {}).map(([name, g]) => {
           const pool = (d.pools || []).find(p => p.name === name);
+          // Iterate the *pool's* members: the server already returns them in
+          // priority order, so the rows read top-to-bottom in the sequence
+          // requests are actually tried. The config array order is just
+          // whatever the last save happened to write.
+          const specs = g.members || [];
+          const ordered = pool && (pool.members || []).length
+            ? pool.members
+            : specs.map(m => ({ provider: m.provider, model: m.model }));
           return {
             name,
             description: g.description || "",
             strategy: g.strategy || "",
-            members: (g.members || []).map(m => {
-              const found = pool && (pool.members || []).find(
-                x => x.provider === m.provider && x.model === m.model);
-              // Carry the server's last probe reading across reloads, so a
-              // refresh does not silently wipe what you just measured.
-              return { ...m, available: found ? found.available : false,
-                       probe: found ? (found.probe || null) : null };
+            members: ordered.map(pm => {
+              const spec = specs.find(x => x.provider === pm.provider && x.model === pm.model) || {};
+              // Carry availability and the last probe reading across reloads,
+              // so a refresh does not silently wipe what you just measured.
+              return { ...spec, provider: pm.provider, model: pm.model,
+                       priority: pm.priority,
+                       available: pm.available,
+                       probe: pm.probe || null };
             }),
           };
         });

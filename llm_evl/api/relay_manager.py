@@ -182,6 +182,9 @@ class RelayManager:
 
         cfg = svc.config
         spec = dict((cfg.groups.get(group) or {}))
+        # Written in ranked order, not the original array order: a human
+        # opening relay.yaml should see the same sequence the router uses.
+        ranked_members = [m for m, _r in ranked]
         spec["members"] = [
             {
                 "provider": m.provider,
@@ -189,7 +192,7 @@ class RelayManager:
                 "weight": int(m.weight),
                 "priority": new_priority[(m.provider, m.model)],
             }
-            for m in pool.members
+            for m in ranked_members
         ]
         groups = dict(cfg.groups)
         groups[group] = spec
