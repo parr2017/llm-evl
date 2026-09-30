@@ -1,0 +1,86 @@
+# 中转站配置（relay）
+#
+# 模型池不需要在这里声明：它由 targets.yaml 的「供应商配置」按模型名自动聚合。
+# 这里只放"怎么选"、"坏了怎么办"、以及"谁能调"。
+#
+# 复制为 relay.yaml 后修改。改完立即生效（每次调用都会重读本文件），无需重启。
+#
+# 【两个端口，别搞混】
+#   管理端 127.0.0.1:7788   Web UI + 全部 /api/*（含供应商密钥）—— 只有本机能访问
+#   中转口 0.0.0.0:7789     只有 /v1/*                —— 内网同事用，需客户端 key
+#
+# 【auth 段】管理端的登录门禁。首次启动若没有这一段，会自动生成随机密码并打印在
+# 服务日志里（只显示一次），只把哈希写进本文件。忘记密码：删掉 auth 段重启即可
+# 重新生成。这一段由程序自己维护，一般不需要手写。
+
+relay:
+  # 转发总开关。false 时 /v1/chat/completions 与 /v1/models 一律返回 403。
+  # 原因：/v1 需要 key，但仍会消耗真实供应商额度。
+  enabled: false
+
+  # 选路策略：
+  #   round_robin  轮询（默认，最安全、无需调参）
+  #   random       随机
+  #   weighted     按权重随机（见 members.<供应商>.weight）
+  #   priority     优先级，数字小的先用
+  strategy: round_robin
+
+  # 同一供应商连续失败多少次后进入冷却
+  failure_threshold: 3
+  # 冷却多少秒后重新参与选路
+  cooldown_seconds: 60
+
+  # 一次调用最多额外重试几次（即最多尝试 1 + max_retries 次）。
+  # 只有 429 / 5xx / 超时 / 连接失败才会换供应商重试；4xx 参数错误直接返回。
+  max_retries: 2
+
+  # 单次上游请求超时（秒）
+  timeout: 120
+
+  # 调用日志在内存里最多保留多少条（重启即清空）
+  log_limit: 1000
+
+  # ---- 客户端 key：谁可以调 /v1 ----
+  # 建议在「中转站 · 模型池」页点「新建 key」生成，不要手写。
+  # 这里只存 sha256 哈希，明文 key 只在创建时显示一次，丢了就停用重建。
+  # groups 为空 = 可以调所有模型；填了组名 = 只能调这些聚合组。
+  clients: []
+  #  clients:
+  #    - name: zhangsan
+  #      key_hash: sha256$e3b0c44298fc1c149afbf4c8996fb924...
+  #      key_prefix: sk-r_a1b2
+  #      enabled: true
+  #      groups: []                 # 留空 = 全部模型；或写 ["A", "B"] 限定
+  #      created_at: 1790725351.0
+  #      last_used_at: null
+  #      last_used_ip: ''
+
+  # ---- 自建聚合组：对外只暴露组名，组内放什么模型你决定 ----
+  # 组名就是外部调用时的 model 值。组内成员的模型名可以各不相同。
+  # 组名与真实模型名冲突时，组优先。
+  groups: {}
+  #  groups:
+  #    A:
+  #      description: 日常对话默认组
+  #      strategy: weighted          # 可选，覆盖全局 strategy
+  #      members:
+  #        - {provider: local-vllm, model: Qwen3.6,            weight: 1, priority: 0}
+  #        - {provider: sensenova,  model: deepseek-v4-flash, weight: 9, priority: 1}
+
+  # ---- 同名模型池的逐成员微调（界面上也能调，一般不用手写）----
+  # 键是真实模型名，members 的键是供应商名。
+  models: {}
+  #  models:
+  #    deepseek-v4-flash:
+  #      strategy: weighted
+  #      members:
+  #        sensenova: {weight: 1, priority: 0}
+  #        amd:        {weight: 3, priority: 1}
+  #        tokenrouter: {weight: 0}          # weight 0 = 不再路由到它
+
+# ---- 管理端登录（由程序自动维护）----
+# admin:
+#   username: admin
+#   password_hash: pbkdf2_sha256$200000$...      # 只存哈希
+# session_secret: <随机串>                        # 用来签会话 cookie
+# session_hours: 12

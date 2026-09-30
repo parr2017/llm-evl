@@ -139,6 +139,10 @@ class TestCompareApi:
         }
         monkeypatch.setattr(run_manager.manager, "get_run", lambda rid: runs.get(rid))
         app = create_app(config_path="targets.yaml")
+        # These tests are about compare logic, not authentication; the admin
+        # gate has its own suite (tests/test_auth_gate.py). Opt out explicitly
+        # rather than weakening the gate for the whole suite.
+        monkeypatch.setenv("LLM_EVL_NO_AUTH", "1")
         return TestClient(app)
 
     def test_endpoint_ok(self, client):
@@ -167,6 +171,10 @@ class TestGetRunApi:
         runs = {"aaa": make_run("aaa", [make_cell("t1", "short", 1, ttft=1.0, tps=50)])}
         monkeypatch.setattr(run_manager.manager, "get_run", lambda rid: runs.get(rid))
         app = create_app(config_path="targets.yaml")
+        # These tests are about compare logic, not authentication; the admin
+        # gate has its own suite (tests/test_auth_gate.py). Opt out explicitly
+        # rather than weakening the gate for the whole suite.
+        monkeypatch.setenv("LLM_EVL_NO_AUTH", "1")
         return TestClient(app)
 
     def test_get_run_returns_body(self, client):

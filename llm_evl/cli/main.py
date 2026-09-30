@@ -32,11 +32,19 @@ def cli(ctx: click.Context):
 @cli.command()
 @click.option("--config", "config_path", default="targets.yaml",
               help="Targets YAML config path.")
-@click.option("--host", default="127.0.0.1")
+@click.option("--relay-config", "relay_config_path", default="relay.yaml",
+              help="Relay YAML config path (routing strategy, breaker, weights, groups).")
+@click.option("--host", default="127.0.0.1",
+              help="Management UI bind address. Keep it on loopback: /api/* "
+                   "returns provider keys.")
 @click.option("--port", default=7788, type=int)
+@click.option("--relay-host", default="0.0.0.0",
+              help="Relay bind address. This is the LAN-facing port.")
+@click.option("--relay-port", default=7789, type=int)
 @click.option("--no-browser", is_flag=True, help="Do not auto-open the browser.")
-def serve(config_path: str, host: str, port: int, no_browser: bool):
-    """Launch the web UI (default)."""
+def serve(config_path: str, relay_config_path: str, host: str, port: int,
+          relay_host: str, relay_port: int, no_browser: bool):
+    """Launch the web UI (default) and the relay endpoint."""
     from ..api.server import run
 
     # Warn on plaintext keys before starting.
@@ -47,7 +55,9 @@ def serve(config_path: str, host: str, port: int, no_browser: bool):
     except FileNotFoundError:
         console.print(f"[yellow]Note:[/yellow] {config_path} not found. "
                       f"Copy targets.yaml.example to targets.yaml and edit it.")
-    run(host=host, port=port, config_path=config_path, open_browser=not no_browser)
+    run(host=host, port=port, config_path=config_path, open_browser=not no_browser,
+        relay_config_path=relay_config_path, relay_host=relay_host,
+        relay_port=relay_port)
 
 
 @cli.command("list-targets")

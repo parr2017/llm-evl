@@ -1,5 +1,6 @@
 # Secrets & local config
 targets.yaml
+relay.yaml
 *.env
 .env
 runs/

@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>登录 · llm-evl</title>
+<style>
+  /* Same three-layer surface + one accent colour as the main UI, so the login
+     page does not feel like a different product. Kept inline: this file is
+     served before the app's own assets and must work on its own. */
+  :root{
+    --bg:#0d1117; --surface-1:#11161d; --surface-2:#161c25; --surface-3:#1c2430;
+    --line:#232c38; --line-soft:#1b222c;
+    --text-1:#e6edf3; --text-2:#9aa7b6; --text-3:#6b7a8c;
+    --accent:#5b8cff; --accent-dim:rgba(91,140,255,.14); --accent-text:#a8c2ff;
+    --err:#f0616d; --err-dim:rgba(240,97,109,.12);
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,"Liberation Mono",monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{
+    margin:0; background:var(--bg); color:var(--text-1);
+    font:14px/1.5 -apple-system,BlinkMacSystemFont,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif;
+    display:flex; align-items:center; justify-content:center; padding:24px;
+  }
+  .card{
+    width:100%; max-width:380px; background:var(--surface-1);
+    border:1px solid var(--line); border-radius:6px; padding:28px;
+  }
+  h1{margin:0 0 4px; font-size:19px; font-weight:650; letter-spacing:.2px}
+  .sub{margin:0 0 22px; color:var(--text-2); font-size:12.5px}
+  label{display:block; margin:0 0 6px; font-size:12px; color:var(--text-2)}
+  .field{margin-bottom:14px}
+  input{
+    width:100%; height:36px; padding:0 11px; color:var(--text-1);
+    background:var(--surface-2); border:1px solid var(--line);
+    border-radius:6px; font-size:13.5px; font-family:inherit; outline:none;
+    transition:border-color .12s, box-shadow .12s;
+  }
+  input:focus{border-color:var(--accent); box-shadow:0 0 0 3px var(--accent-dim)}
+  button{
+    width:100%; height:38px; margin-top:6px; cursor:pointer;
+    color:#fff; background:var(--accent); border:1px solid transparent;
+    border-radius:6px; font-size:14px; font-weight:600; font-family:inherit;
+  }
+  button:hover{filter:brightness(1.07)}
+  button:disabled{opacity:.55; cursor:default}
+  .err{
+    display:none; margin:0 0 14px; padding:9px 11px; font-size:12.5px;
+    color:var(--err); background:var(--err-dim);
+    border:1px solid rgba(240,97,109,.28); border-radius:6px;
+  }
+  .err.on{display:block}
+  .foot{
+    margin-top:18px; padding-top:14px; border-top:1px solid var(--line-soft);
+    color:var(--text-3); font-size:11.5px; line-height:1.6;
+  }
+  code{font-family:var(--mono); color:var(--accent-text)}
+</style>
+</head>
+<body>
+  <form class="card" id="form" autocomplete="on">
+    <h1>llm-evl</h1>
+    <p class="sub">管理端登录 · 管理接口含供应商密钥，仅限本机访问</p>
+
+    <div class="err" id="err"></div>
+
+    <div class="field">
+      <label for="u">用户名</label>
+      <input id="u" name="username" value="admin" autocomplete="username" autofocus />
+    </div>
+    <div class="field">
+      <label for="p">密码</label>
+      <input id="p" name="password" type="password" autocomplete="current-password" />
+    </div>
+    <button id="btn" type="submit">登录</button>
+
+    <div class="foot">
+      首次启动的随机密码打印在服务日志里（<code>llm-evl serve</code> 的输出）。<br/>
+      忘记了？删除 <code>relay.yaml</code> 里的 <code>auth</code> 段后重启，会重新生成。<br/>
+      内网同事请用中转端口 + 客户端 key 调用 <code>/v1</code>，不需要登录本页。
+    </div>
+  </form>
+
+<script>
+  const form = document.getElementById("form");
+  const err = document.getElementById("err");
+  const btn = document.getElementById("btn");
+
+  function showError(msg) {
+    err.textContent = msg;
+    err.classList.add("on");
+  }
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    err.classList.remove("on");
+    btn.disabled = true;
+    btn.textContent = "登录中…";
+    try {
+      const res = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          username: document.getElementById("u").value,
+          password: document.getElementById("p").value,
+        }),
+      });
+      if (res.ok) {
+        // Full navigation, not a SPA route change: the app is a separate
+        // document and the cookie is HttpOnly, so a reload is the honest way
+        // to prove the session works.
+        location.href = "/";
+        return;
+      }
+      let detail = "登录失败";
+      try {
+        const body = await res.json();
+        if (body && body.detail) detail = body.detail;
+      } catch (_) { /* non-JSON error body */ }
+      showError(detail);
+    } catch (ex) {
+      showError("无法连接到服务：" + ex.message);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "登录";
+    }
+  });
+</script>
+</body>
+</html>

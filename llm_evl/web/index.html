@@ -108,6 +108,8 @@ body{
 .nav-badge.warn{background:var(--warn-dim);color:var(--warn)}
 .sidebar-foot{padding:10px 12px;border-top:1px solid var(--line);display:flex;flex-direction:column;gap:7px}
 .status-chip{display:flex;align-items:center;gap:7px;font-size:11.5px;color:var(--text-3)}
+.logout-link{margin-left:auto;color:var(--accent-text);cursor:pointer;text-decoration:none}
+.logout-link:hover{text-decoration:underline}
 .status-dot{width:6px;height:6px;border-radius:50%;background:var(--ok);flex:0 0 6px}
 .status-dot.warn{background:var(--warn)} .status-dot.idle{background:var(--text-3)}
 
@@ -203,6 +205,18 @@ body{
 .member{display:flex;align-items:center;gap:9px;padding:7px 9px;border-radius:var(--radius-sm);
   background:var(--surface);font-size:12px;margin-bottom:4px}
 .member .pname{flex:1} .member .w{font-family:var(--mono);color:var(--text-3)}
+/* Searchable multi-select list for picking group members. A plain bordered
+   scroll area rather than a table: it is a picker, not data, and the rows are
+   click targets rather than cells. */
+.pick-list{max-height:330px;overflow:auto;border:1px solid var(--line);border-radius:var(--radius-sm);background:var(--surface-2)}
+.pick-row{display:flex;align-items:center;gap:9px;padding:6px 10px;cursor:pointer;
+  border-bottom:1px solid var(--line-soft)}
+.pick-row:last-child{border-bottom:0}
+.pick-row:hover{background:var(--surface-3)}
+.pick-row.on{background:var(--accent-dim)}
+.pick-row.dup{opacity:.45;cursor:not-allowed}
+.pick-model{font-size:12.5px;max-width:340px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.pick-actions{display:flex;gap:6px;padding-top:4px}
 .health{width:6px;height:6px;border-radius:50%;flex:0 0 6px}
 .health.ok{background:var(--ok)} .health.cool{background:var(--warn)}
 
@@ -490,6 +504,10 @@ body{
           <span class="status-dot" :class="running ? 'warn' : 'idle'"></span>
           {{ running ? '运行中 · ' + Math.round(progress*100) + '%' : '空闲 · 无运行中任务' }}
         </div>
+        <div class="status-chip" v-if="authUser">
+          <span class="status-dot"></span> 已登录 · {{ authUser }}
+          <a class="logout-link" @click="doLogout">退出</a>
+        </div>
       </div>
     </aside>
 
@@ -628,9 +646,9 @@ body{
               <el-button size="small" type="primary" @click="openPromptDialog(null)">+ 新增 Prompt</el-button>
             </div>
             <el-table :data="prompts" size="small" style="width:100%" empty-text="暂无自定义 Prompt，点击右上角添加">
-              <el-table-column prop="label" label="名称" min-width="120" show-overflow-tooltip />
+              <el-table-column prop="label" label="名称" min-width="120" show-overflow-tooltip></el-table-column>
               <el-table-column prop="bucket" label="长度档" width="80"><template #default="{row}">{{ bucketLabel(row.bucket) }}</template></el-table-column>
-              <el-table-column prop="text" label="内容" min-width="240" show-overflow-tooltip />
+              <el-table-column prop="text" label="内容" min-width="240" show-overflow-tooltip></el-table-column>
               <el-table-column label="期望关键词" min-width="160">
                 <template #default="{row}">
                   <span v-if="!row.expected_keywords.length" class="tertiary">未设置</span>
@@ -1253,8 +1271,8 @@ body{
               <el-table-column label="开始时间" min-width="160"><template #default="{row}"><span class="tertiary">{{ fmtTime(row.started_at) }}</span></template></el-table-column>
               <el-table-column label="结束时间" min-width="160"><template #default="{row}"><span class="tertiary">{{ fmtTime(row.finished_at) }}</span></template></el-table-column>
               <el-table-column label="状态" width="100"><template #default="{row}"><el-tag size="small" :type="statusType(row.status)">{{ statusLabel(row.status) }}</el-tag></template></el-table-column>
-              <el-table-column prop="n_targets" label="目标数" width="80" />
-              <el-table-column prop="n_cells" label="单元数" width="80" />
+              <el-table-column prop="n_targets" label="目标数" width="80"></el-table-column>
+              <el-table-column prop="n_cells" label="单元数" width="80"></el-table-column>
               <el-table-column label="操作" width="160" fixed="right">
                 <template #default="{row}">
                   <el-button size="small" plain type="primary" @click="viewRun(row)">查看</el-button>
@@ -1360,27 +1378,178 @@ body{
           <div class="card">
             <div class="card-head">
               <div class="card-title">中转站 · 模型池</div>
-              <span class="card-sub">同名模型自动跨供应商聚合；客户端只写模型名，无需感知上游</span>
+              <div class="spacer"></div>
+              <span class="pill" :class="relayCfg.enabled ? 'green' : 'slate'">{{ relayCfg.enabled ? '转发已开启' : '转发已关闭' }}</span>
+              <span class="pill" :class="saveStateClass" :title="saveStateTitle">{{ saveStateText }}</span>
+              <el-button size="small" plain @click="loadRelayConfig">刷新</el-button>
             </div>
-            <div class="card" style="background:var(--panel-2);border-color:var(--border);margin-bottom:16px">
-              <div class="grid cols-3">
-                <div class="field"><span class="l">对外 base_url</span><el-input model-value="http://127.0.0.1:7788/v1" readonly size="small" /></div>
-                <div class="field"><span class="l">默认策略</span>
-                  <el-select model-value="round_robin" size="small">
-                    <el-option label="轮询 round_robin" value="round_robin" />
-                    <el-option label="随机 random" value="random" />
-                    <el-option label="加权 weighted" value="weighted" />
-                    <el-option label="优先级 priority" value="priority" />
-                  </el-select>
-                </div>
-                <div class="field"><span class="l">熔断</span><el-input model-value="连续失败 3 次 → 冷却 60s" readonly size="small" /></div>
+            <div class="grid cols-4">
+              <div class="field"><span class="l">中转开关</span>
+                <el-switch v-model="relayCfg.enabled" active-text="开启" inactive-text="关闭" @change="saveNow" />
               </div>
-              <div class="hint" style="margin-top:12px">以上为规划中的中转能力，当前页面仅展示由「供应商配置」自动聚合出的同名模型池；转发服务尚未启用。</div>
+              <div class="field"><span class="l">对外 base_url</span>
+                <el-input :model-value="relayBaseUrl" readonly size="small"></el-input>
+              </div>
+              <div class="field"><span class="l">默认策略</span>
+                <el-select v-model="relayCfg.strategy" size="small" @change="scheduleSave">
+                  <el-option label="轮询 round_robin" value="round_robin" />
+                  <el-option label="随机 random" value="random" />
+                  <el-option label="加权 weighted" value="weighted" />
+                  <el-option label="优先级 priority" value="priority" />
+                </el-select>
+              </div>
+              <div class="field"><span class="l">最大重试次数</span>
+                <el-input-number v-model="relayCfg.max_retries" :min="0" :max="5" size="small" controls-position="right" @change="scheduleSave"></el-input-number>
+              </div>
+              <div class="field"><span class="l">熔断阈值（连续失败）</span>
+                <el-input-number v-model="relayCfg.failure_threshold" :min="1" :max="20" size="small" controls-position="right" @change="scheduleSave"></el-input-number>
+              </div>
+              <div class="field"><span class="l">冷却秒数</span>
+                <el-input-number v-model="relayCfg.cooldown_seconds" :min="0" :max="3600" size="small" controls-position="right" @change="scheduleSave"></el-input-number>
+              </div>
+              <div class="field"><span class="l">上游超时（秒）</span>
+                <el-input-number v-model="relayCfg.timeout" :min="1" :max="600" size="small" controls-position="right" @change="scheduleSave"></el-input-number>
+              </div>
+              <div class="field"><span class="l">日志条数上限</span>
+                <el-input-number v-model="relayCfg.log_limit" :min="10" :max="10000" size="small" controls-position="right" @change="scheduleSave"></el-input-number>
+              </div>
             </div>
+            <div class="hint" style="margin-top:12px">
+              上面这个地址就是同事要填的 <code class="rpt-code">base_url</code>（中转口，监听 0.0.0.0，只挂 /v1/*，每次调用需带客户端 key）。
+              管理端在 <code class="rpt-code">127.0.0.1:7788</code>，内网访问不到 —— 它带着供应商密钥。<br/>
+              开启后每次调用都会用真实密钥产生费用。失败重试只针对 429 / 5xx / 超时 / 连接失败；
+              同一供应商连续失败 <b>{{ relayCfg.failure_threshold }}</b> 次后冷却 <b>{{ relayCfg.cooldown_seconds }}</b> 秒，期间自动跳过。
+              流式响应一旦开始下发，中途失败只能断流（不能换供应商，否则会把两段回答拼在一起）。
+            </div>
+          </div>
 
-            <div v-if="!modelPool.length" class="empty">暂无模型。请先在「供应商配置」中添加供应商与模型。</div>
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">聚合组</div>
+              <span class="card-sub">自建对外模型名：组内放什么模型由你决定，外部只写组名</span>
+              <div class="spacer"></div>
+              <el-button size="small" plain @click="newRelayGroup">新建组</el-button>
+            </div>
+            <div class="hint" style="margin-bottom:12px">
+              例：建一个组 <code class="rpt-code">A</code>，往里放 sensenova 的 deepseek 与 amd 的 qwen；
+              同事调用时 <code class="rpt-code">model: "A"</code>，背后打到哪个模型由策略决定，他看不到也无需知道。
+              组名与真实模型名冲突时，<b>组优先</b>。<br/>
+              「测试全部」会对每个成员发一次真实请求（<code class="rpt-code">max_tokens=8</code>，几十个 token），
+              测出通断与首字延迟；「按实测重排优先级」会<b>重新测一遍</b>，然后通的按 TTFT 从快到慢排好、不通的沉到队尾。
+              测试<b>不会改动熔断状态</b>（那是真实流量该管的事）。所有改动<b>自动保存</b>到 relay.yaml。
+            </div>
+            <div v-if="!relayGroups.length" class="empty">还没有自建聚合组。上方「模型池」里的同名聚合依然可用。</div>
+            <div v-else>
+              <div class="pool-card" v-for="g in relayGroups" :key="g.name">
+                <div class="pool-top">
+                  <span class="health ok"></span>
+                  <span class="pool-name">{{ g.name }}</span>
+                  <span class="pill blue">对外模型名</span>
+                  <div class="spacer"></div>
+                  <el-select v-model="g.strategy" size="small" style="width:150px"
+                             @change="onGroupStrategyChange(g)">
+                    <el-option label="优先级 priority（推荐：按实测顺序先用）" value="priority" />
+                    <el-option label="跟随全局" value="" />
+                    <el-option v-for="s in RELAY_STRATEGIES" :key="s.v" :label="s.label" :value="s.v" />
+                  </el-select>
+                  <el-button size="small" plain @click="addGroupMember(g)">加成员（可多选）</el-button>
+                  <el-button size="small" plain :loading="probingGroup === g.name" @click="testGroup(g)">测试全部</el-button>
+                  <el-button size="small" type="primary" plain :loading="sortingGroup === g.name" @click="autoSortGroup(g)">按实测重排优先级</el-button>
+                  <el-button size="small" plain @click="removeRelayGroup(g.name)">删除组</el-button>
+                </div>
+                <div class="field" style="margin-bottom:8px">
+                  <span class="l">组说明</span>
+                  <el-input v-model="g.description" size="small" placeholder="例如：日常对话默认走这几个" @input="scheduleSave"></el-input>
+                </div>
+                <div v-if="g.strategy !== 'priority' && g.members.length > 1" class="rpt-hint warn" style="margin:0 0 8px">
+                  当前策略是 <b>{{ strategyLabel(g.strategy) }}</b>，优先级不参与选路 ——
+                  想让「按实测重排」的结果真正生效，请把策略改成 <b>优先级 priority</b>。
+                </div>
+                <div v-if="!g.members.length" class="hint">组内还没有成员，点「加成员」选择供应商与模型。</div>
+                <div class="member" v-for="(m, i) in g.members" :key="i">
+                  <span class="health" :class="m.available === false ? 'cool' : 'ok'"></span>
+                  <span class="pname">{{ m.provider }} / {{ m.model }}</span>
+                  <span class="pill" v-if="m.available === false" class="red">配置有误（供应商或模型已不存在）</span>
+                  <span class="pill" v-else-if="probingMemberKey === m.provider + '/' + m.model" class="amber">测试中…</span>
+                  <span class="pill" v-else-if="m.probe && m.probe.ok" class="green"
+                        :title="'测试于 ' + new Date(m.probe.at * 1000).toLocaleString()">
+                    通 · TTFT {{ m.probe.ttft != null ? Number(m.probe.ttft).toFixed(3) + 's' : '—' }}
+                  </span>
+                  <span class="pill" v-else-if="m.probe" class="red"
+                        :title="m.probe.error">{{ m.probe.error_type || '失败' }}</span>
+                  <div class="spacer"></div>
+                  <el-button size="small" plain :loading="probingMemberKey === m.provider + '/' + m.model"
+                             :disabled="m.available === false" @click="testGroupMember(g, m)">测</el-button>
+                  <span class="w">优先级</span>
+                  <el-input-number v-model="m.priority" :min="0" :max="999" size="small" controls-position="right" style="width:88px"
+                                   @change="scheduleSave"></el-input-number>
+                  <el-button size="small" plain @click="removeGroupMember(g, i)">移除</el-button>
+                </div>
+              </div>
+              <div class="hint" style="margin-top:12px">改完记得点上方「保存配置」。</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">客户端 key</div>
+              <span class="card-sub">内网同事调用中转口用的凭证：每人一个，可随时停用</span>
+              <div class="spacer"></div>
+              <el-input v-model="relayClientName" size="small" placeholder="给谁用，例如 张三" style="width:180px"></el-input>
+              <el-select v-model="relayClientGroups" multiple collapse-tags size="small" placeholder="限定可用组（不选=全部）" style="width:280px">
+                <el-option v-for="n in relayGroupNames" :key="n" :label="n" :value="n"></el-option>
+              </el-select>
+              <el-button size="small" type="primary" plain @click="createRelayClient">新建 key</el-button>
+            </div>
+            <div class="hint" style="margin-bottom:12px">
+              key <b>只存哈希</b>，创建时显示一次，之后无法再查看完整值。丢了就停用重建。
+              调用日志会记录是哪个 key 调的，方便定位是谁在刷。
+            </div>
+            <div v-if="!relayClients.length" class="empty">
+              还没有客户端 key。中转开启后，没有 key 的调用会被拒绝（401）。
+            </div>
+            <el-table v-else :data="relayClients" size="small" style="width:100%">
+              <el-table-column label="名称" min-width="120" prop="name"></el-table-column>
+              <el-table-column label="key 前缀" min-width="130">
+                <template #default="{row}"><span class="mono">{{ row.key_prefix }}…</span></template>
+              </el-table-column>
+              <el-table-column label="可用组" min-width="160">
+                <template #default="{row}">
+                  <span v-if="!row.groups || !row.groups.length" class="tertiary">全部</span>
+                  <span v-else class="mono">{{ row.groups.join(', ') }}</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="最近使用" min-width="150">
+                <template #default="{row}">
+                  <span v-if="row.last_used_at" class="mono tertiary">
+                    {{ fmtTime(row.last_used_at) }}<span v-if="row.last_used_ip"> · {{ row.last_used_ip }}</span>
+                  </span>
+                  <span v-else class="tertiary">从未使用</span>
+                </template>
+              </el-table-column>
+              <el-table-column label="启用" width="80">
+                <template #default="{row}">
+                  <el-switch :model-value="row.enabled" @change="v => toggleRelayClient(row.name, v)" />
+                </template>
+              </el-table-column>
+              <el-table-column label="" width="90">
+                <template #default="{row}">
+                  <el-button size="small" plain @click="deleteRelayClient(row.name)">删除</el-button>
+                </template>
+              </el-table-column>
+            </el-table>
+          </div>
+
+          <div class="card">
+            <div class="card-head">
+              <div class="card-title">模型池（同名自动聚合）</div>
+              <span class="card-sub">同一个模型名被多个供应商提供时自动聚合；权重 / 优先级可逐成员调整</span>
+            </div>
+            <div v-if="!relayAutoPools.length" class="empty">
+              暂无模型。请先在「供应商配置」中添加供应商与模型。
+            </div>
             <div v-else class="grid cols-2">
-              <div class="pool-card" v-for="pool in modelPool" :key="pool.name">
+              <div class="pool-card" v-for="pool in relayAutoPools" :key="pool.name">
                 <div class="pool-top">
                   <span class="health" :class="pool.multi ? 'ok' : 'cool'"></span>
                   <span class="pool-name">{{ pool.name }}</span>
@@ -1389,9 +1558,16 @@ body{
                   <span class="pill" :class="pool.multi ? 'blue' : 'amber'">{{ pool.multi ? '可聚合' : '单点' }}</span>
                 </div>
                 <div class="member" v-for="m in pool.members" :key="m.provider">
-                  <span class="health ok"></span>
+                  <span class="health" :class="m.breaker.state === 'open' ? 'cool' : 'ok'"></span>
                   <span class="pname">{{ m.provider }}</span>
-                  <span class="w">{{ m.temperature != null ? 'T=' + m.temperature : 'T默认' }} · {{ fmtCtx(m.context_length) }}</span>
+                  <span class="w">{{ m.context_length ? fmtCtx(m.context_length) : '上下文未知' }}</span>
+                  <el-tooltip content="优先级：数字小的先用。改完自动保存" placement="top">
+                    <el-input-number v-model="m.priority" :min="0" :max="999" size="small" controls-position="right" style="width:92px" @change="scheduleSave"></el-input-number>
+                  </el-tooltip>
+                  <span class="pill" :class="m.breaker.state === 'open' ? 'warn' : 'green'">
+                    {{ m.breaker.state === 'open' ? ('冷却 ' + m.breaker.cooldown_remaining + 's') : '正常' }}
+                  </span>
+                  <el-button v-if="m.breaker.state === 'open' || m.breaker.consecutive_failures" size="small" plain @click="resetBreaker(m.provider)">复位</el-button>
                 </div>
               </div>
             </div>
@@ -1405,6 +1581,9 @@ body{
               <el-select v-model="relayLogModel" placeholder="全部模型" clearable size="small" style="width:160px">
                 <el-option v-for="m in relayLogModelOptions" :key="m" :label="m" :value="m" />
               </el-select>
+              <el-select v-model="relayLogProvider" placeholder="全部供应商" clearable size="small" style="width:150px">
+                <el-option v-for="p in relayLogProviderOptions" :key="p" :label="p" :value="p" />
+              </el-select>
               <el-button size="small" plain @click="loadRelayLogs">刷新</el-button>
             </div>
             <div class="grid cols-4" style="margin-bottom:16px">
@@ -1413,20 +1592,39 @@ body{
               <div class="stat"><div class="stat-label">平均 TTFT</div><div class="stat-value">{{ relayStats.avgTtft }}<span class="unit">s</span></div></div>
               <div class="stat"><div class="stat-label">平均 tok/s</div><div class="stat-value">{{ relayStats.avgTps }}<span class="unit">t/s</span></div></div>
             </div>
+            <div class="hint" style="margin-bottom:12px">
+              日志只保存在内存里（上限 {{ relayLogLimit }} 条，重启清空），且只记指标 —— 不记录 prompt 正文与密钥。
+              TTFT / tok/s 只有流式调用才有值，非流式请求只有 e2e。
+              「调用方」是客户端 key 的名字，用来定位是谁在调；key 本身不会出现在这里。
+            </div>
             <el-table :data="relayLogsFiltered" size="small" style="width:100%">
-              <el-table-column label="时间" width="180"><template #default="{row}"><span class="tertiary mono">{{ row.time }}</span></template></el-table-column>
-              <el-table-column label="请求模型" min-width="150"><template #default="{row}"><span class="mono" style="color:var(--accent)">{{ row.model }}</span></template></el-table-column>
-              <el-table-column label="命中供应商" min-width="150"><template #default="{row}">{{ row.provider }}</template></el-table-column>
-              <el-table-column label="状态" width="100"><template #default="{row}"><el-tag size="small" :type="row.ok?'success':'danger'">{{ row.ok?'成功':'失败' }}</el-tag></template></el-table-column>
-              <el-table-column label="TTFT (s)" width="100"><template #default="{row}"><span class="mono">{{ row.ttft }}</span></template></el-table-column>
-              <el-table-column label="tok/s" width="100"><template #default="{row}"><span class="mono">{{ row.tps }}</span></template></el-table-column>
-              <el-table-column label="tokens" width="90"><template #default="{row}"><span class="mono">{{ row.tokens }}</span></template></el-table-column>
-              <el-table-column label="重试" width="80"><template #default="{row}"><span class="mono" :class="row.retry?'down':'tertiary'">{{ row.retry }}</span></template></el-table-column>
+              <el-table-column label="时间" width="170"><template #default="{row}"><span class="tertiary mono">{{ row.time }}</span></template></el-table-column>
+              <el-table-column label="调用方" min-width="100"><template #default="{row}">
+                <span v-if="row.client" class="mono">{{ row.client }}</span>
+                <span v-else class="tertiary">—</span>
+              </template></el-table-column>
+              <el-table-column label="请求模型" min-width="140"><template #default="{row}"><span class="mono" style="color:var(--accent)">{{ row.model }}</span></template></el-table-column>
+              <el-table-column label="命中供应商" min-width="130"><template #default="{row}">{{ row.provider || '—' }}</template></el-table-column>
+              <el-table-column label="状态" width="90"><template #default="{row}"><el-tag size="small" :type="row.ok?'success':'danger'">{{ row.ok?'成功':'失败' }}</el-tag></template></el-table-column>
+              <el-table-column label="错误" min-width="150" show-overflow-tooltip><template #default="{row}">
+                <span v-if="row.error" class="mono down">{{ row.error_type || 'error' }} · {{ row.error }}</span>
+                <span v-else class="tertiary">—</span>
+              </template></el-table-column>
+              <el-table-column label="TTFT (s)" width="90"><template #default="{row}"><span class="mono">{{ row.ttft }}</span></template></el-table-column>
+              <el-table-column label="tok/s" width="90"><template #default="{row}"><span class="mono">{{ row.tps }}</span></template></el-table-column>
+              <el-table-column label="tokens" width="80"><template #default="{row}"><span class="mono">{{ row.tokens }}</span></template></el-table-column>
+              <el-table-column label="尝试" width="80"><template #default="{row}">
+                <span class="mono" :class="row.retry ? 'down' : 'tertiary'">
+                  {{ row.attempts || 1 }}<span v-if="row.retry"> (重试{{ row.retry }})</span>
+                </span>
+              </template></el-table-column>
               <template #empty>
                 <div class="empty" v-if="relayLogsUnavailable">
-                  <b style="color:var(--warn)">该功能尚未实现</b><br/>
-                  后端没有 <code class="rpt-code">GET /api/relay/logs</code> 接口，本项目也<b>不含</b>请求转发/中转能力。<br/>
-                  中转统计需要先实现转发层才能成立，此页保留仅为占位。
+                  <b style="color:var(--warn)">读取调用日志失败</b><br/>
+                  后端 <code class="rpt-code">GET /api/relay/logs</code> 没有响应。服务可能是启动前的老版本，请重启 <code class="rpt-code">llm-evl serve</code>。
+                </div>
+                <div class="empty" v-else-if="!relayCfg.enabled">
+                  中转当前<b>未开启</b>。请先到「模型池」页打开中转开关，再向 <code class="rpt-code">{{ relayBaseUrl }}/chat/completions</code> 发一次请求。
                 </div>
                 <div class="empty" v-else>暂无中转调用记录。</div>
               </template>
@@ -1439,6 +1637,87 @@ body{
   </div>
 
   <!-- ================= DIALOGS ================= -->
+  <el-dialog v-model="relayKeyDlgVisible" title="客户端 key 已生成" width="560px" align-center>
+    <div class="hint" style="margin-bottom:12px">
+      这是<b>唯一一次</b>显示完整 key（服务端只存哈希，之后无法再查看）。请立刻复制发给对应的人。
+    </div>
+    <el-input :model-value="relayNewKey" readonly style="font-family:var(--mono)">
+      <template #append>
+        <el-button @click="copyRelayKey">{{ relayKeyCopied ? '已复制' : '复制' }}</el-button>
+      </template>
+    </el-input>
+    <div class="hint" style="margin-top:12px">
+      调用方式：<code class="rpt-code">curl {{ relayBaseUrl }}/chat/completions -H 'Authorization: Bearer &lt;key&gt;'</code>
+    </div>
+    <template #footer>
+      <el-button type="primary" @click="relayKeyDlgVisible=false">我已保存</el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog v-model="relayGroupDlgVisible" title="新建聚合组" width="480px" align-center>
+    <el-form label-width="90px" label-position="right" size="default">
+      <el-form-item label="组名">
+        <el-input v-model="relayNewGroup.name" placeholder="对外暴露的模型名，例如 A" />
+      </el-form-item>
+      <el-form-item label="组说明">
+        <el-input v-model="relayNewGroup.description" placeholder="例如 日常对话默认组" />
+      </el-form-item>
+    </el-form>
+    <div class="hint">
+      组名就是外部调用时的 <code class="rpt-code">model</code> 值。建完点「加成员」，在弹出的清单里
+      可搜索、可一次勾选多个模型。
+    </div>
+    <template #footer>
+      <el-button @click="relayGroupDlgVisible=false">取消</el-button>
+      <el-button type="primary" @click="confirmNewRelayGroup">创建</el-button>
+    </template>
+  </el-dialog>
+
+  <el-dialog v-model="relayMemberDlgVisible" title="选择组内成员（可多选）" width="760px" align-center>
+    <div class="grid cols-3" style="margin-bottom:10px">
+      <div class="field">
+        <span class="l">搜索模型 / 供应商</span>
+        <el-input v-model="relayMemberSearch" size="small" placeholder="输入名字过滤，例如 deepseek" clearable></el-input>
+      </div>
+      <div class="field">
+        <span class="l">只看某个供应商</span>
+        <el-select v-model="relayMemberProviderFilter" size="small" placeholder="全部供应商" clearable style="width:100%">
+          <el-option v-for="p in relayMemberProviders" :key="p" :label="p" :value="p"></el-option>
+        </el-select>
+      </div>
+      <div class="field">
+        <span class="l">已勾选 {{ relayMemberChecked.length }} 个</span>
+        <div class="pick-actions">
+          <el-button size="small" plain @click="checkAllFiltered">全选当前结果</el-button>
+          <el-button size="small" plain @click="relayMemberChecked = []">清空勾选</el-button>
+        </div>
+      </div>
+    </div>
+    <div class="hint" style="margin-bottom:8px">
+      共 {{ relayMemberEntries.length }} 个模型（跨全部供应商），当前筛选出 {{ relayMemberFiltered.length }} 个。
+      已在组里的会标记出来并禁止重复添加。
+    </div>
+    <div class="pick-list">
+      <div class="pick-row" v-for="e in relayMemberFiltered" :key="e.key"
+           :class="{ on: isMemberChecked(e), dup: isAlreadyInGroup(e) }"
+           @click="toggleMemberEntry(e)">
+        <span @click.stop><el-checkbox :model-value="isMemberChecked(e)" :disabled="isAlreadyInGroup(e)"></el-checkbox></span>
+        <span class="mono pick-model">{{ e.model }}</span>
+        <span class="tertiary">{{ e.provider }} · {{ fmtCtx(e.context_length) }}</span>
+        <div class="spacer"></div>
+        <span v-if="isAlreadyInGroup(e)" class="pill slate">已在组内</span>
+        <span v-else-if="isMemberChecked(e)" class="pill blue">将添加</span>
+      </div>
+      <div v-if="!relayMemberFiltered.length" class="empty">没有匹配的模型，换个关键词试试。</div>
+    </div>
+    <template #footer>
+      <el-button @click="relayMemberDlgVisible=false">取消</el-button>
+      <el-button type="primary" :disabled="!relayMemberChecked.length" @click="confirmAddGroupMembers">
+        添加所选{{ relayMemberChecked.length ? ' (' + relayMemberChecked.length + ')' : '' }}
+      </el-button>
+    </template>
+  </el-dialog>
+
   <el-dialog v-model="providerDlgVisible" :title="providerEditing._idx>=0 ? '编辑供应商' : '新增供应商'" width="560px" align-center>
     <el-form label-width="110px" label-position="right" size="default">
       <el-form-item label="名称"><el-input v-model="providerEditing.name" placeholder="例如 OpenAI、DeepSeek" /></el-form-item>
@@ -1569,6 +1848,13 @@ async function api(path, opts) {
   }
   if (!res.ok) {
     const t = await res.text().catch(() => "");
+    // 401 means the session is gone or was never there. The management server
+    // only listens on loopback, so the only sensible response is to send the
+    // browser to the login page.
+    if (res.status === 401) {
+      if (!location.pathname.startsWith("/login")) location.href = "/login";
+      throw new Error("未登录");
+    }
     const err = new Error(res.status + " " + t);
     err.status = res.status;   // callers distinguish 404 (no such endpoint)
     throw err;
@@ -2347,10 +2633,10 @@ const app = createApp({
         { key:"compare", label:"运行对比", icon:"compare" },
       ]},
       { label: "中转站", items: [
-        { key:"relay-pool", label:"模型池", icon:"pool", badge: modelPool.value.length ? String(modelPool.value.length) : "" },
-        // Marked 未实现 so the nav never implies a capability the backend
-        // does not have (GET /api/relay/logs does not exist).
-        { key:"relay-logs", label:"调用日志", icon:"logs", badge:"未实现", badgeWarn:true },
+        { key:"relay-pool", label:"模型池", icon:"pool",
+          badge: relayPools.value.length ? String(relayPools.value.length) : "" },
+        { key:"relay-logs", label:"调用日志", icon:"logs",
+          badge: relayLogs.value.length ? String(relayLogs.value.length) : "" },
       ]},
     ]);
 
@@ -2364,8 +2650,8 @@ const app = createApp({
       results:{ label:"结果", desc:"单次运行的性能洞察、趋势、透视与明细" },
       history:{ label:"历史", desc:"全部运行记录，可查看或设为对比基准" },
       compare:{ label:"运行对比", desc:"按 target × prompt × 并发对齐两次运行" },
-      "relay-pool":{ label:"中转站 · 模型池", desc:"同名模型自动聚合，规划中的统一 OpenAI 兼容入口" },
-      "relay-logs":{ label:"中转站 · 调用日志", desc:"每次中转调用的模型、命中供应商与性能" },
+      "relay-pool":{ label:"中转站 · 模型池", desc:"统一 OpenAI 兼容入口：同名模型跨供应商聚合、策略与熔断可配" },
+      "relay-logs":{ label:"中转站 · 调用日志", desc:"每次中转调用的模型、命中供应商、重试与性能" },
     };
     const currentPage = computed(() => pageMeta[page.value] || { label:"", desc:"" });
 
@@ -2381,7 +2667,8 @@ const app = createApp({
       if (k === "compare") loadHistory();
       if (k === "run" || k === "chat") refreshTargets();
       if (k === "prompts") refreshPrompts();
-      if (k === "relay-logs") loadRelayLogs();
+      if (k === "relay-logs") { loadRelayLogs(); loadRelayConfig(); }
+      if (k === "relay-pool") loadRelayConfig();
       if (k === "dashboard") nextTick(renderDashboardChart);
     }
 
@@ -2414,16 +2701,481 @@ const app = createApp({
       ];
     });
 
-    /* ---------- relay logs (graceful fallback) ---------- */
+    /* ---------- relay: config + groups + model pool + call log ---------- */
+    const RELAY_STRATEGIES = [
+      { v: "round_robin", label: "轮询 round_robin" },
+      { v: "random",      label: "随机 random" },
+      { v: "weighted",    label: "加权 weighted" },
+      { v: "priority",    label: "优先级 priority" },
+    ];
+    // What colleagues point their SDK at. The server knows the relay port and
+    // the LAN address; deriving it from window.location would hand out the
+    // loopback management port, which is both wrong and unreachable for them.
+    const relayBaseUrl = ref(window.location.origin + "/v1");
+    const relayCfg = reactive({
+      enabled: false, strategy: "round_robin", failure_threshold: 3,
+      cooldown_seconds: 60, max_retries: 2, timeout: 120, log_limit: 1000,
+      models: {},
+    });
+    const relayPools = ref([]);
+    const relayGroups = ref([]);
+    const relayClients = ref([]);
+    const relayAutoPools = computed(() => relayPools.value.filter(p => p.kind !== "group"));
+    const relayGroupNames = computed(() => relayGroups.value.map(g => g.name));
+    const relayLogLimit = ref(1000);
+    const relayConfigLoaded = ref(false);
+    const relaySaving = ref(false);
+
+    async function loadRelayConfig() {
+      try {
+        const d = await api("/api/relay/config");
+        Object.assign(relayCfg, d.config || {});
+        relayPools.value = d.pools || [];
+        relayClients.value = d.clients || [];
+        // Groups live in the config as the source of truth, but the pool
+        // overview carries the resolved availability flags, so rebuild the
+        // editable shape from the pools (which is what the server validated).
+        relayGroups.value = Object.entries(d.config?.groups || {}).map(([name, g]) => {
+          const pool = (d.pools || []).find(p => p.name === name);
+          return {
+            name,
+            description: g.description || "",
+            strategy: g.strategy || "",
+            members: (g.members || []).map(m => {
+              const found = pool && (pool.members || []).find(
+                x => x.provider === m.provider && x.model === m.model);
+              // Carry the server's last probe reading across reloads, so a
+              // refresh does not silently wipe what you just measured.
+              return { ...m, available: found ? found.available : false,
+                       probe: found ? (found.probe || null) : null };
+            }),
+          };
+        });
+        relayLogLimit.value = (d.config && d.config.log_limit) || 1000;
+        if (d.endpoints && d.endpoints.public_base_url) {
+          relayBaseUrl.value = d.endpoints.public_base_url;
+        }
+        relayConfigLoaded.value = true;
+        if (saveState.value === "idle") saveState.value = "saved";
+      } catch (e) {
+        ElementPlus.ElMessage.error("读取中转配置失败：" + (e && e.message ? e.message : e));
+      }
+    }
+
+    /* ---------- auto-save ----------
+       Every edit persists by itself. Two cadences:
+       - scheduleSave(): debounced, for continuous input (numbers, text, selects)
+       - saveNow(): immediate, for discrete actions whose effect must not be
+         lost if the user clicks away (the on/off switch, add/remove member).
+       A manual "save" button used to be the only path, which is one stray click
+       away from silently losing a routing change. */
+    const SAVE_DEBOUNCE_MS = 700;
+    const saveState = ref("idle");        // idle | pending | saving | saved | error
+    const saveError = ref("");
+    const savedAt = ref(null);
+    let saveTimer = null;
+    let savingPromise = null;
+
+    const saveStateText = computed(() => ({
+      idle: "自动保存已就绪",
+      pending: "有改动…",
+      saving: "保存中…",
+      saved: savedAt.value ? "已自动保存 " + savedAt.value : "已自动保存",
+      error: "保存失败",
+    }[saveState.value] || "自动保存"));
+    const saveStateClass = computed(() => ({
+      idle: "slate", pending: "amber", saving: "amber",
+      saved: "green", error: "red",
+    }[saveState.value] || "slate"));
+    const saveStateTitle = computed(() => saveState.value === "error"
+      ? ("保存失败：" + saveError.value + "（改动还在页面上，修好再保存）")
+      : "所有改动会自动写入 relay.yaml，无需手动保存");
+
+    function scheduleSave() {
+      saveState.value = "pending";
+      if (saveTimer) clearTimeout(saveTimer);
+      saveTimer = setTimeout(() => { saveTimer = null; saveNow(); }, SAVE_DEBOUNCE_MS);
+    }
+
+    async function saveNow() {
+      if (saveTimer) { clearTimeout(saveTimer); saveTimer = null; }
+      // Collapse bursts: if a save is already in flight, queue exactly one more
+      // so the last keystroke always lands without racing the server.
+      if (savingPromise) { savingPromise = savingPromise.then(runSave); return savingPromise; }
+      savingPromise = runSave();
+      return savingPromise;
+    }
+
+    async function runSave() {
+      saveState.value = "saving";
+      try {
+        await api("/api/relay/config", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(collectRelayPayload()),
+        });
+        savedAt.value = new Date().toLocaleTimeString("zh-CN", { hour12: false });
+        saveState.value = "saved";
+        saveError.value = "";
+      } catch (e) {
+        saveState.value = "error";
+        saveError.value = (e && e.message) || String(e);
+        ElementPlus.ElMessage.error("自动保存失败：" + saveError.value);
+      } finally {
+        savingPromise = null;
+      }
+    }
+
+    function collectRelayPayload() {
+      // Weights are not editable in the UI any more, so they are not sent:
+      // whatever relay.yaml already holds stays untouched.
+      // Shape matters: the reader looks up models.<model>.members.<provider>,
+      // so writing the providers directly under the model name would be
+      // accepted on save and then silently ignored on read.
+      const models = {};
+      for (const pool of relayAutoPools.value) {
+        const members = {};
+        for (const m of pool.members) members[m.provider] = { priority: m.priority };
+        models[pool.name] = { members };
+      }
+      const groups = {};
+      for (const g of relayGroups.value) {
+        groups[g.name] = {
+          description: g.description || "",
+          strategy: g.strategy || undefined,
+          members: g.members.map(m => ({
+            provider: m.provider, model: m.model, priority: m.priority,
+          })),
+        };
+      }
+      return {
+        enabled: relayCfg.enabled,
+        strategy: relayCfg.strategy,
+        failure_threshold: relayCfg.failure_threshold,
+        cooldown_seconds: relayCfg.cooldown_seconds,
+        max_retries: relayCfg.max_retries,
+        timeout: relayCfg.timeout,
+        log_limit: relayCfg.log_limit,
+        models,
+        groups,
+      };
+    }
+
+    async function resetBreaker(provider) {
+      try {
+        await api("/api/relay/breakers/reset?provider=" + encodeURIComponent(provider),
+                  { method: "POST" });
+        ElementPlus.ElMessage.success("已复位 " + provider + " 的熔断状态");
+        await loadRelayConfig();
+      } catch (e) {
+        ElementPlus.ElMessage.error("复位失败：" + (e && e.message ? e.message : e));
+      }
+    }
+
+    /* ---------- relay: groups ---------- */
+    const relayNewGroup = reactive({ name: "", description: "" });
+    const relayGroupDlgVisible = ref(false);
+    function newRelayGroup() {
+      Object.assign(relayNewGroup, { name: "", description: "" });
+      relayGroupDlgVisible.value = true;
+    }
+    function confirmNewRelayGroup() {
+      const name = (relayNewGroup.name || "").trim();
+      if (!name) { ElementPlus.ElMessage.warning("组名不能为空"); return; }
+      if (relayGroupNames.value.includes(name)) {
+        ElementPlus.ElMessage.warning("组名已存在：" + name); return;
+      }
+      // A group is an ordered preference list, so priority is the sensible
+      // default: "按实测重排" then has something to act on immediately.
+      relayGroups.value.push({ name, description: relayNewGroup.description || "",
+                               strategy: "priority", members: [] });
+      relayGroupDlgVisible.value = false;
+      saveNow();
+      ElementPlus.ElMessage.success("已创建组 " + name + "，加成员即可，改动自动保存");
+    }
+    function removeRelayGroup(name) {
+      if (!window.confirm("删除聚合组 " + name + "？调用方再写 model:" + name + " 会得到 404。")) return;
+      relayGroups.value = relayGroups.value.filter(g => g.name !== name);
+      saveNow();
+    }
+    function removeGroupMember(g, i) {
+      const m = g.members[i];
+      if (!window.confirm("把 " + m.provider + "/" + m.model + " 移出组 " + g.name + "？")) return;
+      g.members.splice(i, 1);
+      saveNow();
+    }
+    const relayMemberDlgVisible = ref(false);
+    const relayMemberTarget = ref(null);
+    const relayMemberSearch = ref("");
+    const relayMemberProviderFilter = ref("");
+    const relayMemberChecked = ref([]);   // array of "provider   model" keys
+
+    // Every configured (provider, model) pair, flattened. A group may hold any
+    // of them, so the picker lists all of them rather than making the operator
+    // walk provider-by-provider through two chained dropdowns.
+    const relayMemberEntries = computed(() => {
+      const out = [];
+      for (const prov of providers.value) {
+        for (const m of (prov.models || [])) {
+          out.push({
+            provider: prov.name,
+            model: m.name,
+            context_length: m.context_length,
+            key: prov.name + " " + m.name,
+          });
+        }
+      }
+      return out.sort((a, b) => a.model.localeCompare(b.model)
+                                || a.provider.localeCompare(b.provider));
+    });
+    const relayMemberProviders = computed(() =>
+      [...new Set(relayMemberEntries.value.map(e => e.provider))].sort());
+    const relayMemberFiltered = computed(() => {
+      const q = (relayMemberSearch.value || "").trim().toLowerCase();
+      return relayMemberEntries.value.filter(e => {
+        if (relayMemberProviderFilter.value && e.provider !== relayMemberProviderFilter.value) {
+          return false;
+        }
+        if (!q) return true;
+        // Search the model name and the provider name: people remember either.
+        return e.model.toLowerCase().includes(q)
+            || e.provider.toLowerCase().includes(q);
+      });
+    });
+
+    function addGroupMember(g) {
+      relayMemberTarget.value = g.name;
+      relayMemberSearch.value = "";
+      relayMemberProviderFilter.value = "";
+      relayMemberChecked.value = [];
+      relayMemberDlgVisible.value = true;
+    }
+    function isMemberChecked(e) { return relayMemberChecked.value.includes(e.key); }
+    function isAlreadyInGroup(e) {
+      const g = relayGroups.value.find(x => x.name === relayMemberTarget.value);
+      return !!g && g.members.some(m => m.provider === e.provider && m.model === e.model);
+    }
+    function toggleMemberEntry(e) {
+      if (isAlreadyInGroup(e)) return;
+      const i = relayMemberChecked.value.indexOf(e.key);
+      if (i >= 0) relayMemberChecked.value.splice(i, 1);
+      else relayMemberChecked.value.push(e.key);
+    }
+    function checkAllFiltered() {
+      for (const e of relayMemberFiltered.value) {
+        if (isAlreadyInGroup(e)) continue;
+        if (!relayMemberChecked.value.includes(e.key)) relayMemberChecked.value.push(e.key);
+      }
+    }
+    function confirmAddGroupMembers() {
+      const g = relayGroups.value.find(x => x.name === relayMemberTarget.value);
+      if (!g || !relayMemberChecked.value.length) return;
+      const chosen = relayMemberEntries.value.filter(e => relayMemberChecked.value.includes(e.key));
+      let added = 0;
+      for (const e of chosen) {
+        if (g.members.some(m => m.provider === e.provider && m.model === e.model)) continue;
+        g.members.push({
+          provider: e.provider, model: e.model, weight: 1,
+          // New members go to the back of the priority order, so an existing
+          // group's routing behaviour does not change just by adding to it.
+          priority: g.members.length,
+          available: true,
+        });
+        added++;
+      }
+      relayMemberChecked.value = [];
+      relayMemberDlgVisible.value = false;
+      saveNow();
+      ElementPlus.ElMessage.success(`已添加 ${added} 个成员`);
+    }
+
+    /* ---------- relay: connectivity probe & auto priority ---------- */
+    const probingGroup = ref("");
+    const sortingGroup = ref("");
+    const probingMemberKey = ref("");
+
+    function _applyProbeResults(results) {
+      // Results come back keyed by (provider, model); write them onto both the
+      // group rows and the pool members so the state survives a reload.
+      const byKey = {};
+      for (const r of results || []) byKey[r.provider + "/" + r.model] = r;
+      for (const g of relayGroups.value) {
+        for (const m of g.members) {
+          const r = byKey[m.provider + "/" + m.model];
+          if (r) m.probe = r;
+        }
+      }
+      for (const pool of relayPools.value) {
+        for (const m of pool.members || []) {
+          const r = byKey[m.provider + "/" + m.model];
+          if (r) m.probe = r;
+        }
+      }
+    }
+
+    async function testGroup(g) {
+      probingGroup.value = g.name;
+      try {
+        const d = await api("/api/relay/probe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ group: g.name }),
+        });
+        _applyProbeResults(d.results);
+        const ok = (d.results || []).filter(r => r.ok).length;
+        const bad = (d.results || []).length - ok;
+        ElementPlus.ElMessage[bad ? "warning" : "success"](
+          `${g.name}：${ok} 个通` + (bad ? `，${bad} 个不通` : ""));
+      } catch (e) {
+        ElementPlus.ElMessage.error("测试失败：" + (e && e.message ? e.message : e));
+      } finally {
+        probingGroup.value = "";
+      }
+    }
+
+    async function testGroupMember(g, m) {
+      const key = m.provider + "/" + m.model;
+      probingMemberKey.value = key;
+      try {
+        const d = await api("/api/relay/probe", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ members: [{ provider: m.provider, model: m.model }] }),
+        });
+        _applyProbeResults(d.results);
+        const r = (d.results || [])[0] || {};
+        ElementPlus.ElMessage[r.ok ? "success" : "error"](
+          r.ok
+            ? `${m.provider}/${m.model} 通 · TTFT ${Number(r.ttft).toFixed(3)}s`
+            : `${m.provider}/${m.model} 不通 · ${r.error_type || "失败"}`);
+      } catch (e) {
+        ElementPlus.ElMessage.error("测试失败：" + (e && e.message ? e.message : e));
+      } finally {
+        probingMemberKey.value = "";
+      }
+    }
+
+    async function autoSortGroup(g) {
+      const n = (g.members || []).length;
+      if (!n) return;
+      const ok = window.confirm(
+        `将重新测试组 ${g.name} 的 ${n} 个成员（真实请求，每个 max_tokens=8），` +
+        `然后按「通的优先、快的在前、不通的垫底」重排优先级。会覆盖当前手工设置的优先级（权重不变）。继续？`);
+      if (!ok) return;
+      sortingGroup.value = g.name;
+      try {
+        const d = await api(`/api/relay/groups/${encodeURIComponent(g.name)}/auto-priority`,
+                           { method: "POST" });
+        _applyProbeResults(d.results);
+        const order = (d.ranking || []).map(x =>
+          `${x.priority + 1}. ${x.provider}/${x.model}` +
+          (x.ok ? ` (${Number(x.ttft).toFixed(3)}s)` : ` ✗ ${x.error_type || "不通"}`));
+        // The server already persisted the new priorities; reload so the rows
+        // show them in the order the config now holds.
+        await loadRelayConfig();
+        ElementPlus.ElMessage.success("已按实测重排并保存：" + order.join("、"));
+        if (d.strategy && d.strategy !== "priority") {
+          ElementPlus.ElMessage.warning(
+            `注意：组 ${g.name} 的策略是「${strategyLabel(d.strategy)}」，优先级不参与选路，` +
+            `重排结果暂时不会影响调用顺序；改成「优先级 priority」后生效。`);
+        }
+      } catch (e) {
+        ElementPlus.ElMessage.error("重排失败：" + (e && e.message ? e.message : e));
+      } finally {
+        sortingGroup.value = "";
+      }
+    }
+
+    function strategyLabel(v) {
+      const hit = RELAY_STRATEGIES.find(x => x.v === v);
+      return hit ? hit.label : (v || "跟随全局");
+    }
+    function onGroupStrategyChange(g) {
+      if (g.strategy && g.strategy !== "priority" && g.members.length > 1) {
+        ElementPlus.ElMessage.info(
+          `已切到「${strategyLabel(g.strategy)}」：该策略按权重/轮询选路，优先级只在 priority 策略下生效。`);
+      }
+    }
+
+    /* ---------- relay: client keys ---------- */
+    const relayClientName = ref("");
+    const relayClientGroups = ref([]);
+    const relayNewKey = ref("");
+    const relayKeyDlgVisible = ref(false);
+    const relayKeyCopied = ref(false);
+    async function createRelayClient() {
+      const name = (relayClientName.value || "").trim();
+      if (!name) { ElementPlus.ElMessage.warning("请填写这个 key 给谁用"); return; }
+      try {
+        const d = await api("/api/relay/clients", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name, groups: relayClientGroups.value }),
+        });
+        relayNewKey.value = d.key;
+        relayKeyCopied.value = false;
+        relayKeyDlgVisible.value = true;
+        relayClientName.value = "";
+        relayClientGroups.value = [];
+        await loadRelayConfig();
+      } catch (e) {
+        ElementPlus.ElMessage.error("创建失败：" + (e && e.message ? e.message : e));
+      }
+    }
+    async function copyRelayKey() {
+      try {
+        await navigator.clipboard.writeText(relayNewKey.value);
+        relayKeyCopied.value = true;
+      } catch (e) {
+        // Clipboard needs a secure context; fall back to a manual selection.
+        ElementPlus.ElMessage.warning("浏览器拒绝了剪贴板访问，请手动选中文本复制");
+      }
+    }
+    async function toggleRelayClient(name, enabled) {
+      try {
+        await api(`/api/relay/clients/${encodeURIComponent(name)}/enabled?enabled=${enabled}`,
+                  { method: "POST" });
+        await loadRelayConfig();
+        ElementPlus.ElMessage.success(`${name} 已${enabled ? "启用" : "停用"}`);
+      } catch (e) {
+        ElementPlus.ElMessage.error("操作失败：" + (e && e.message ? e.message : e));
+        await loadRelayConfig();
+      }
+    }
+    async function deleteRelayClient(name) {
+      if (!window.confirm("删除 " + name + " 的 key？该同事将立即无法调用中转。")) return;
+      try {
+        await api(`/api/relay/clients/${encodeURIComponent(name)}`, { method: "DELETE" });
+        await loadRelayConfig();
+        ElementPlus.ElMessage.success("已删除 " + name);
+      } catch (e) {
+        ElementPlus.ElMessage.error("删除失败：" + (e && e.message ? e.message : e));
+      }
+    }
+
+    /* ---------- session ---------- */
+    const authUser = ref("");
+    async function loadAuthStatus() {
+      try {
+        const d = await api("/api/auth/status");
+        authUser.value = d.authenticated ? (d.username || "admin") : "";
+      } catch (e) { authUser.value = ""; }
+    }
+    async function doLogout() {
+      try { await api("/api/auth/logout", { method: "POST" }); } catch (e) { /* already gone */ }
+      location.href = "/login";
+    }
+
     const relayLogs = ref([]);
     const relayLogModel = ref("");
+    const relayLogProvider = ref("");
     const relayLogModelOptions = computed(() => [...new Set(relayLogs.value.map(r => r.model))]);
+    const relayLogProviderOptions = computed(() => [...new Set(relayLogs.value.map(r => r.provider).filter(Boolean))]);
     const relayLogsFiltered = computed(() => {
-      if (!relayLogModel.value) return relayLogs.value;
-      return relayLogs.value.filter(r => r.model === relayLogModel.value);
+      let rows = relayLogs.value;
+      if (relayLogModel.value) rows = rows.filter(r => r.model === relayLogModel.value);
+      if (relayLogProvider.value) rows = rows.filter(r => r.provider === relayLogProvider.value);
+      return rows;
     });
     const relayStats = computed(() => {
-      const logs = relayLogs.value;
+      const logs = relayLogsFiltered.value;
       const n = logs.length;
       const ok = logs.filter(r => r.ok).length;
       const ttfts = logs.filter(r => r.ok && typeof r.ttft === "number").map(r => r.ttft);
@@ -2442,20 +3194,25 @@ const app = createApp({
       try {
         const d = await api("/api/relay/logs?limit=200");
         relayLogsUnavailable.value = false;
+        if (d.log_limit) relayLogLimit.value = d.log_limit;
         relayLogs.value = (d.logs || []).map(r => ({
           time: r.time || (r.started_at != null ? fmtTime(r.started_at) : "—"),
           model: r.model || "—",
           provider: r.provider || "—",
+          client: r.client || "",
           ok: r.ok !== false,
+          error: r.error || "",
+          error_type: r.error_type || "",
           ttft: r.ttft != null ? Number(r.ttft).toFixed(3) : "—",
           tps: r.tps != null ? Number(r.tps).toFixed(1) : "—",
           tokens: r.tokens != null ? r.tokens : "—",
+          attempts: r.attempts || 1,
           retry: r.retry != null ? r.retry : 0,
         }));
       } catch (e) {
-        // Be honest: distinguish "no data yet" from "backend has no such
-        // endpoint at all" (404), so the UI never implies a feature exists.
-        relayLogsUnavailable.value = (e && e.status === 404);
+        // "endpoint missing" is not "no data": say so instead of showing an
+        // empty table that reads like a healthy relay with no traffic.
+        relayLogsUnavailable.value = true;
         relayLogs.value = [];
       }
     }
@@ -3183,6 +3940,7 @@ const app = createApp({
     }
 
     onMounted(() => {
+      loadAuthStatus();
       refreshProviders(); refreshTargets(); loadHistory(); refreshPrompts();
       window.addEventListener("beforeunload", beforeunloadHandler);
       window.addEventListener("resize", () => {
@@ -3237,7 +3995,24 @@ const app = createApp({
       trendMetric, trendData, pivotRows, pivotConcs, trendMetricLabel, renderTrendChart, pivotCellClass,
       TREND_METRICS,
       modelPool, sharedModelPools, hasCompletedRuns, dashboardStats,
-      relayLogs, relayLogModel, relayLogModelOptions, relayLogsFiltered, relayStats, loadRelayLogs, relayLogsUnavailable,
+      relayBaseUrl, RELAY_STRATEGIES,
+      relayCfg, relayPools, relayGroups, relayClients, relayAutoPools, relayGroupNames,
+      relayLogLimit, relayConfigLoaded, relaySaving,
+      loadRelayConfig, resetBreaker,
+      saveState, saveStateText, saveStateClass, saveStateTitle,
+      scheduleSave, saveNow, removeGroupMember,
+      relayNewGroup, relayGroupDlgVisible, newRelayGroup, confirmNewRelayGroup, removeRelayGroup,
+      relayMemberDlgVisible, relayMemberSearch, relayMemberProviderFilter, relayMemberChecked,
+      relayMemberEntries, relayMemberProviders, relayMemberFiltered,
+      addGroupMember, isMemberChecked, isAlreadyInGroup, toggleMemberEntry,
+      checkAllFiltered, confirmAddGroupMembers,
+      probingGroup, sortingGroup, probingMemberKey,
+      testGroup, testGroupMember, autoSortGroup, strategyLabel, onGroupStrategyChange,
+      relayClientName, relayClientGroups, relayNewKey, relayKeyDlgVisible, relayKeyCopied,
+      createRelayClient, copyRelayKey, toggleRelayClient, deleteRelayClient,
+      authUser, loadAuthStatus, doLogout,
+      relayLogs, relayLogModel, relayLogProvider, relayLogModelOptions, relayLogProviderOptions,
+      relayLogsFiltered, relayStats, loadRelayLogs, relayLogsUnavailable,
     };
   },
 });

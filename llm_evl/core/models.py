@@ -134,7 +134,13 @@ class Provider:
         }
 
     def to_config_dict(self) -> dict[str, Any]:
-        """Serializable form for UI display (exposes api_key for local use)."""
+        """Serializable form for UI display (exposes api_key for local use).
+
+        Note: this is what ``GET /api/providers`` returns, so the plaintext key
+        travels to the browser. The whole management API sits behind the admin
+        login (see ``api/auth_routes.py``) — that login is the only thing
+        standing between a LAN caller and every provider credential here.
+        """
         return {
             "name": self.name,
             "base_url": self.base_url,

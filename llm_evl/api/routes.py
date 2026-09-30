@@ -400,11 +400,12 @@ def spa_fallback(full_path: str):
     """Serve index.html for any non-API, non-file path (SPA fallback).
 
     API paths under /api/ are handled above and never reach here. As a guard
-    against stale backends / route drift, any /api/ path that does reach here
-    returns a JSON 404 (never HTML) so frontend fetch() gets a clear error
-    instead of a confusing "Unexpected token '<'" parse failure.
+    against stale backends / route drift, any /api/ or /v1/ path that does
+    reach here returns a JSON 404 (never HTML) so frontend fetch() — and any
+    OpenAI SDK pointed at this server — gets a clear error instead of a
+    confusing "Unexpected token '<'" parse failure.
     """
-    if full_path.startswith("api/") or full_path == "api":
+    if full_path.startswith(("api/", "v1/")) or full_path in ("api", "v1"):
         raise HTTPException(404, f"API endpoint not found: /{full_path}")
     candidate = (WEB_DIR / full_path).resolve()
     # Prevent path traversal.

@@ -32,6 +32,22 @@ W_POINTS = 0.5
 W_KEYWORD = 0.6
 W_LENGTH = 0.4
 
+# Reasoning traces arrive under different names depending on who serves the
+# model: `reasoning_content` (DeepSeek, Kimi, GLM, vLLM with a reasoning
+# parser), `reasoning` (Qwen's own template — observed on vLLM serving Qwen3.6)
+# and `thinking` (some gateways). Any of them means "the model has started
+# producing", which is what the caller is waiting for.
+REASONING_KEYS = ("reasoning_content", "reasoning", "thinking")
+
+
+def _reasoning_text(delta: dict) -> str:
+    """The reasoning trace carried by this delta, whichever key it arrived under."""
+    for key in REASONING_KEYS:
+        value = delta.get(key)
+        if value:
+            return str(value)
+    return ""
+
 
 def _compute_cost(target: Target, input_tokens: int, output_tokens: int) -> float | None:
     """Cost in CNY. None unless the target has a usable price pair."""
@@ -58,6 +74,7 @@ async def stream_request(
     expected_keywords: list[str] | None = None,
     min_output_tokens: int | None = None,
     reference_points: list[str] | None = None,
+    max_tokens: int | None = None,
 ) -> RequestResult:
     """Send one streaming chat completion and return a timed RequestResult.
 
@@ -73,12 +90,23 @@ async def stream_request(
     }
     if include_usage:
         payload["stream_options"] = {"include_usage": True}
+    if max_tokens:
+        # Only callers that want a cheap, bounded answer set this (the relay's
+        # connectivity probe). Omitting it keeps the payload byte-identical to
+        # before, so the benchmark path is unaffected.
+        payload["max_tokens"] = int(max_tokens)
 
     headers = {
-        "Authorization": f"Bearer {target.resolved_api_key()}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
     }
+    # Only send Authorization when a key exists: `Bearer ` with an empty value
+    # is an illegal header, so httpx rejects the request outright — that used
+    # to break every keyless provider (e.g. a local vLLM with auth disabled)
+    # with a confusing transport error instead of a plain 401.
+    _key = target.resolved_api_key()
+    if _key:
+        headers["Authorization"] = f"Bearer {_key}"
 
     result = RequestResult(
         target=target.name,
@@ -137,7 +165,15 @@ async def stream_request(
                     result.finish_reason = fr
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
-                if content:
+                # Reasoning models stream their thinking before any `content`,
+                # and that first thinking token is the first token the caller
+                # waited for — so it counts for TTFT/ITL. It is not part of the
+                # answer, so it stays out of the text we count tokens on and out
+                # of the sentence-boundary check (TTS is about the answer).
+                # Without this, TTFT is unmeasurable for the whole reasoning
+                # model family (Qwen3.6, DeepSeek-V4-Flash, ...).
+                signal = content or _reasoning_text(delta)
+                if signal:
                     now = time.perf_counter()
                     if first_token_time is None:
                         first_token_time = now
@@ -146,10 +182,12 @@ async def stream_request(
                         if last_token_time is not None:
                             result.itl.append(now - last_token_time)
                     last_token_time = now
-                    full_text_parts.append(content)
+                    if content:
+                        full_text_parts.append(content)
                     # First-sentence boundary: only meaningful after the first
                     # token, so we don't conflate TTS with TTFT.
-                    if first_sentence_time is None and first_token_time is not None:
+                    if (content and first_sentence_time is None
+                            and first_token_time is not None):
                         if any(ch in sentence_endings for ch in content):
                             first_sentence_time = now
 
@@ -310,10 +348,12 @@ async def stream_chat(
         "stream_options": {"include_usage": True},
     }
     headers = {
-        "Authorization": f"Bearer {target.resolved_api_key()}",
         "Content-Type": "application/json",
         "Accept": "text/event-stream",
     }
+    _key = target.resolved_api_key()
+    if _key:
+        headers["Authorization"] = f"Bearer {_key}"
 
     result = RequestResult(target=target.name, prompt_id="chat", concurrency=1)
     full_text_parts: list[str] = []
@@ -360,7 +400,11 @@ async def stream_chat(
                     result.finish_reason = fr
                 delta = choices[0].get("delta") or {}
                 content = delta.get("content")
-                if content:
+                # See stream_request: the reasoning trace counts for timing but
+                # is not forwarded to on_token — the chat UI should show the
+                # answer, not the model's private thinking.
+                signal = content or _reasoning_text(delta)
+                if signal:
                     now = time.perf_counter()
                     if first_token_time is None:
                         first_token_time = now
@@ -368,8 +412,12 @@ async def stream_chat(
                         if last_token_time is not None:
                             result.itl.append(now - last_token_time)
                     last_token_time = now
-                    full_text_parts.append(content)
-                    if on_token:
+                    if content:
+                        full_text_parts.append(content)
+                    # Only content is forwarded: a reasoning-only delta has no
+                    # content at all, and on_token(None) would push a null token
+                    # into the chat SSE stream.
+                    if content and on_token:
                         await on_token(content)
 
     except httpx.TimeoutException:
